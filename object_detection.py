@@ -30,9 +30,13 @@ import sys
 import logging
 import gi
 from math import exp
+import cairo
+import struct
 
 gi.require_version('Gst', '1.0')
-from gi.repository import Gst, GObject
+gi.require_version('GstVideo', '1.0')
+gi.require_foreign('cairo')
+from gi.repository import Gst, GObject, GstVideo
 
 
 class DetectedObject:
@@ -59,8 +63,8 @@ class ObjectDetection:
         self.label_path = ''
         self.box_path = ''
 
-        self.tflite_labels = []
-        self.tflite_boxes = []
+        self.labels = []
+        self.boxes = []
         self.detected_objects = []
 
         self.x_scale = 10.0
@@ -101,15 +105,13 @@ class ObjectDetection:
 
         # init pipeline
         self.pipeline = Gst.parse_launch(
-            'v4l2src name=cam_src ! videoconvert ! videoscale ! video/x-raw,width=%d,height=%d,format=RGB,framerate=30/1 ! tee name=t'
-            't. ! queue ! videoconvert ! cairooverlay name=tensor_res ! ximagesink name=img_tensor'
-            't. ! queue leaky=2 max-size-buffers=2 ! videoscale ! video/x-raw,width=%d,height=%d,format=RGB ! tensor_converter ! '
+            'v4l2src name=cam_src ! videoconvert ! videoscale ! video/x-raw,width=%d,height=%d,format=RGB,framerate=30/1 ! tee name=t ' % (self.video_width, self.video_height) +
+            't. ! queue ! videoconvert ! cairooverlay name=tensor_res ! ximagesink name=img_tensor '
+            't. ! queue leaky=2 max-size-buffers=2 ! videoscale ! video/x-raw,width=%d,height=%d,format=RGB ! tensor_converter ! ' % (self.model_width, self.model_height) +
             'tensor_transform mode=arithmetic option=typecast:float32,add:-127.5,div:127.5 ! '
-            'tensor_filter framework=tensorflow-lite model=%s ! '
+            'tensor_filter framework=tensorflow-lite model=%s ! ' % (self.tflite_model) + 
             'tensor_sink name=tensor_sink'
-            % (self.video_width, self.video_height, self.model_width, self.model_height, self.tflite_model)
         )
-        print(type(self.pipeline))
 
         # bus and message callback
         bus = self.pipeline.get_bus()
@@ -193,19 +195,19 @@ class ObjectDetection:
         area_b = b.width * b.height
         ratio = inter / (area_a + area_b - inter)
 
-        return max(ratio, 0)
+        return ratio >= 0
 
     # pass only one box which has higher probability out of two
     # if their iou value is higher than the threshold
     def nms(self, detected_objs):
         threshold_iou = 0.5
         num_boxes = len(detected_objs)
-        detected_objs = detected_objs.sort(key = lambda obj: obj.prob, reverse=True)
+        detected_objs = sorted(detected_objs, key=lambda obj: obj.prob, reverse=True)
         to_delete = [False] * num_boxes
 
         for i in range(num_boxes):
             for j in range(i + 1, num_boxes):
-                if iou(detected_objs[i], detected_objs[j]) > threshold_iou:
+                if self.iou(detected_objs[i], detected_objs[j]) > threshold_iou:
                     to_delete[j] = True
 
         self.detected_objects.clear()
@@ -213,24 +215,22 @@ class ObjectDetection:
             if not to_delete[i]:
                 self.detected_objects.append(detected_objs[i])
 
-        # for debugging, print detected info here
-
     def get_detected_objects(self, detections, boxes):
         threshold_score = 0.5
         detected = []
 
-        for i in range(self.detection_max):
-            y_center = boxes[0] / self.y_scale * self.tflite_boxes[2][i] \
-                + self.tflite_boxes[0][i]
-            x_center = boxes[1] / self.x_scale * self.tflite_boxes[3][i] \
-                + self.tflite_boxes[1][i]
-            h = exp(boxes[2] / self.h_scale) * self.tflite_boxes[2][i]
-            w = exp(boxes[3] / self.w_scale) * self.tflite_boxes[3][i]
+        print('len: ', len(detections))
 
-            y_min = y_center - h/2
-            x_min = x_center - w/2
-            y_max = y_center + h/2
-            x_max = x_center + w/2
+        for i in range(self.detection_max):
+            y_center = boxes[0] / self.y_scale * self.boxes[2][i] + self.boxes[0][i]
+            x_center = boxes[1] / self.x_scale * self.boxes[3][i] + self.boxes[1][i]
+            h = exp(boxes[2] / self.h_scale) * self.boxes[2][i]
+            w = exp(boxes[3] / self.w_scale) * self.boxes[3][i]
+
+            y_min = y_center - h/2.
+            x_min = x_center - w/2.
+            y_max = y_center + h/2.
+            x_max = x_center + w/2.
 
             x = x_min * self.model_width
             y = y_min * self.model_height
@@ -238,9 +238,10 @@ class ObjectDetection:
             height = (y_max - y_min) * self.model_height
 
             for c in range(1, self.label_size):
-                score = 1 / (1 + exp(-detections[c]))
+                score = 1. / (1. + exp(-detections[c]))
                 if score < threshold_score:
                     continue
+                print(score)
 
                 detected_obj = DetectedObject(x, y, w, h, c, score)
                 detected.append(detected_obj)
@@ -249,7 +250,8 @@ class ObjectDetection:
             # detections += self.label_size
             # boxes += self.box_size
 
-        nms(detected)
+        print(detected)
+        self.nms(detected)
 
     def on_new_data(self, sink, buffer):
         """Callback for tensor sink signal.
@@ -258,31 +260,68 @@ class ObjectDetection:
         :param buffer: buffer from element
         :return: None
         """
-        if self.running and buffer.n_memory == 2:
+        if self.running and buffer.n_memory() == 2:
             mem_boxes = buffer.get_memory(0) # check if correct
             result, mapinfo_boxes = mem_boxes.map(Gst.MapFlags.READ)
             if result:
-                if mapinfo_boxes == self.box_size * self.detection_max * 4:
-                    boxes = mapinfo_boxes.data
+                if mapinfo_boxes.size == self.box_size * self.detection_max * 4:
+                    boxes = struct.unpack(str(len(mapinfo_boxes.data)//4) + 'f', mapinfo_boxes.data)
+                else: print('failed')
                     
             mem_detections = buffer.get_memory(1) # check if correct
             result, mapinfo_detections = mem_detections.map(Gst.MapFlags.READ)
             if result:
-                if mapinfo_detections == self.label_size * self.detection_max * 4:
-                    detections = mapinfo_detections.data        
-                    
-            self.get_detected_objects(detections, boxes)
-            
-            mem_boxes.unmap(mapinfo_boxes)
-            mem_detections.unmap(mapinfo_detections)
+                if mapinfo_detections.size == self.label_size * self.detection_max * 4:
+                    detections = struct.unpack(str(len(mapinfo_detections.data)//4) + 'f', mapinfo_detections.data)
+                    self.get_detected_objects(detections, boxes)
+                    mem_boxes.unmap(mapinfo_boxes)
+                    mem_detections.unmap(mapinfo_detections)
 
-# here - 05/03
+    # needed?
+    def prepare_overlay_cb(self, overlay, caps):
+        # print(self, overlay, caps)
+        # self.cairo_valid = GstVideo.VideoInfo.from_caps(caps)
+        # print('prepare_overlay_cb: cairo_valid = %d' % (self.cairo_valid))
+        self.cairo_valid = True
 
-    def prepare_overlay_cb(self):
-        return
+    def draw_overlay_cb(self, overlay, context, timestamp, duration):      
+        if not self.cairo_valid or not self.running:
+            return
+        
+        draw_cnt = 0
+        detected = self.detected_objects
 
-    def draw_overlay_cb(self):
-        return
+        context.select_font_face('Sans', cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
+        context.set_font_size(20)
+
+        for detected_object in detected:
+            label = self.labels[detected_object.class_id]
+
+            x = detected_object.x * self.video_width / self.model_width
+            y = detected_object.y * self.video_height / self.model_height
+            width = detected_object * self.video_width / self.model_width
+            height = detected_object * self.video_height / self.model_height
+
+            # draw rectangle
+            context.rectangle(x, y, width, height)
+            context.set_source_rgb(1, 0, 0)
+            context.set_line_width(1.5)
+            context.stroke()
+            context.fill_preserve()
+
+            # draw title
+            context.move_to(x + 5, y + 25)
+            context.text_path(label)
+            context.set_source_rgb(1, 0, 0)
+            context.fill_reserve()
+            context.set_source_rb(1, 1, 1)
+            context.set_line_width(0.3)
+            context.stroke()
+            context.fill_preserve()
+
+            draw_cnt += 1
+            if draw_cnt >= self.max_object_detection:
+                break
 
     def on_timer_update_result(self):
         """Timer callback for textoverlay.
@@ -335,8 +374,12 @@ class ObjectDetection:
         try:
             with open(self.box_path, 'r') as box_file:
                 for line in box_file.readlines():
-                    box_line = map(int, line.split(' '))
-                    self.tflite_boxes.append(box_line)
+                    box_line = line.split(' ')
+                    del box_line[0:8]
+                    box_line = box_line[:-1]
+                    box_line = list(map(float, box_line))
+                    if len(box_line) > 0:
+                        self.boxes.append(box_line)
         except FileNotFoundError:
             logging.error('cannot find tflite box priors [%s]', self.box_path)
             return False
@@ -347,11 +390,11 @@ class ObjectDetection:
         try:
             with open(self.label_path, 'r') as label_file:
                 for line in label_file.readlines():
-                    self.tflite_labels.append(line)
+                    self.labels.append(line)
         except FileNotFoundError:
             logging.error('cannot find tflite label [%s]', self.label_path)
             return False
-        logging.info('finished to load labels, total [%d]', len(self.tflite_labels))
+        logging.info('finished to load labels, total [%d]', len(self.labels))
 
         return True
 
@@ -362,7 +405,7 @@ class ObjectDetection:
         :return: label string
         """
         try:
-            label = self.tflite_labels[index]
+            label = self.labels[index]
         except IndexError:
             label = ''
         return label
@@ -377,7 +420,7 @@ class ObjectDetection:
         # -1 if failed to get max score index
         self.new_label_index = -1
 
-        if data_size == len(self.tflite_labels):
+        if data_size == len(self.labels):
             scores = [data[i] for i in range(data_size)]
             max_score = max(scores)
             if max_score > 0:
