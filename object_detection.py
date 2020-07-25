@@ -219,13 +219,13 @@ class ObjectDetection:
         threshold_score = 0.5
         detected = []
 
-        print('len: ', len(detections))
-
         for i in range(self.detection_max):
-            y_center = boxes[0] / self.y_scale * self.boxes[2][i] + self.boxes[0][i]
-            x_center = boxes[1] / self.x_scale * self.boxes[3][i] + self.boxes[1][i]
-            h = exp(boxes[2] / self.h_scale) * self.boxes[2][i]
-            w = exp(boxes[3] / self.w_scale) * self.boxes[3][i]
+            label_idx = self.label_size * i
+            box_idx = self.box_size * i
+            y_center = boxes[box_idx + 0] / self.y_scale * self.boxes[2][i] + self.boxes[0][i]
+            x_center = boxes[box_idx + 1] / self.x_scale * self.boxes[3][i] + self.boxes[1][i]
+            h = exp(boxes[box_idx + 2] / self.h_scale) * self.boxes[2][i]
+            w = exp(boxes[box_idx + 3] / self.w_scale) * self.boxes[3][i]
 
             y_min = y_center - h/2.
             x_min = x_center - w/2.
@@ -238,19 +238,12 @@ class ObjectDetection:
             height = (y_max - y_min) * self.model_height
 
             for c in range(1, self.label_size):
-                score = 1. / (1. + exp(-detections[c]))
+                score = 1. / (1. + exp(-detections[label_idx + c]))
                 if score < threshold_score:
                     continue
-                print(score)
-
-                detected_obj = DetectedObject(x, y, w, h, c, score)
-                detected.append(detected_obj)
-        
-            # check original code
-            # detections += self.label_size
-            # boxes += self.box_size
-
-        print(detected)
+                # print(score)
+                detected.append(DetectedObject(x, y, w, h, c, score))
+                
         self.nms(detected)
 
     def on_new_data(self, sink, buffer):
@@ -299,8 +292,8 @@ class ObjectDetection:
 
             x = detected_object.x * self.video_width / self.model_width
             y = detected_object.y * self.video_height / self.model_height
-            width = detected_object * self.video_width / self.model_width
-            height = detected_object * self.video_height / self.model_height
+            width = detected_object.width * self.video_width / self.model_width
+            height = detected_object.height * self.video_height / self.model_height
 
             # draw rectangle
             context.rectangle(x, y, width, height)
@@ -313,8 +306,8 @@ class ObjectDetection:
             context.move_to(x + 5, y + 25)
             context.text_path(label)
             context.set_source_rgb(1, 0, 0)
-            context.fill_reserve()
-            context.set_source_rb(1, 1, 1)
+            context.fill_preserve()
+            context.set_source_rgb(1, 1, 1)
             context.set_line_width(0.3)
             context.stroke()
             context.fill_preserve()
@@ -358,7 +351,7 @@ class ObjectDetection:
         :return: True if successfully initialized
         """
         tflite_model = 'ssd_mobilenet_v2_coco.tflite'
-        tflite_label = 'labels.txt'
+        tflite_label = 'coco_labels_list.txt'
         tflite_box = 'box_priors.txt'
         current_folder = os.path.dirname(os.path.abspath(__file__))
         model_folder = os.path.join(current_folder, 'tflite_model')
@@ -375,14 +368,21 @@ class ObjectDetection:
             with open(self.box_path, 'r') as box_file:
                 for line in box_file.readlines():
                     box_line = line.split(' ')
-                    del box_line[0:8]
-                    box_line = box_line[:-1]
+                    ws_cnt = 0
+                    for value in box_line:
+                        if value == '': ws_cnt += 1
+                        else: break
+                    del box_line[0:ws_cnt]
+                    if box_line[-1] == '\n':
+                        box_line = box_line[:-1]
                     box_line = list(map(float, box_line))
                     if len(box_line) > 0:
                         self.boxes.append(box_line)
+
         except FileNotFoundError:
             logging.error('cannot find tflite box priors [%s]', self.box_path)
             return False
+
         logging.info('finished to load box priors')
 
         # load labels
@@ -390,6 +390,8 @@ class ObjectDetection:
         try:
             with open(self.label_path, 'r') as label_file:
                 for line in label_file.readlines():
+                    if line[-1] == '\n':
+                        line = line[:-1]
                     self.labels.append(line)
         except FileNotFoundError:
             logging.error('cannot find tflite label [%s]', self.label_path)
