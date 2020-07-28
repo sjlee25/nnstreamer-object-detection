@@ -195,7 +195,7 @@ class ObjectDetection:
         area_b = b.width * b.height
         ratio = inter / (area_a + area_b - inter)
 
-        return ratio >= 0
+        return max(ratio, 0)
 
     # pass only one box which has higher probability out of two
     # if their iou value is higher than the threshold
@@ -206,6 +206,7 @@ class ObjectDetection:
         to_delete = [False] * num_boxes
 
         for i in range(num_boxes):
+            if to_delete[i]: continue
             for j in range(i + 1, num_boxes):
                 if self.iou(detected_objs[i], detected_objs[j]) > threshold_iou:
                     to_delete[j] = True
@@ -242,8 +243,8 @@ class ObjectDetection:
                 if score < threshold_score:
                     continue
                 # print(score)
-                detected.append(DetectedObject(x, y, w, h, c, score))
-                
+                detected.append(DetectedObject(x, y, width, height, c, score))
+
         self.nms(detected)
 
     def on_new_data(self, sink, buffer):
@@ -282,14 +283,12 @@ class ObjectDetection:
             return
         
         draw_cnt = 0
-        detected = self.detected_objects
-
         context.select_font_face('Sans', cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
         context.set_font_size(20)
 
-        for detected_object in detected:
+        for detected_object in self.detected_objects:
             label = self.labels[detected_object.class_id]
-
+            
             x = detected_object.x * self.video_width / self.model_width
             y = detected_object.y * self.video_height / self.model_height
             width = detected_object.width * self.video_width / self.model_width
@@ -297,7 +296,7 @@ class ObjectDetection:
 
             # draw rectangle
             context.rectangle(x, y, width, height)
-            context.set_source_rgb(1, 0, 0)
+            context.set_source_rgb(0, 1, 1)
             context.set_line_width(1.5)
             context.stroke()
             context.fill_preserve()
@@ -305,7 +304,7 @@ class ObjectDetection:
             # draw title
             context.move_to(x + 5, y + 25)
             context.text_path(label)
-            context.set_source_rgb(1, 0, 0)
+            context.set_source_rgb(0, 1, 1)
             context.fill_preserve()
             context.set_source_rgb(1, 1, 1)
             context.set_line_width(0.3)
@@ -413,7 +412,8 @@ class ObjectDetection:
         return label
 
     def update_top_label_index(self, data, data_size):
-        """Update tflite label index with max score.
+        """Update tflite label index with max scor
+e.
 
         :param data: array of scores
         :param data_size: data size
