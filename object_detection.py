@@ -38,7 +38,6 @@ gi.require_version('GstVideo', '1.0')
 gi.require_foreign('cairo')
 from gi.repository import Gst, GObject, GstVideo
 
-
 class DetectedObject:
     def __init__(self, x, y, width, height, class_id, prob):
         self.x = x
@@ -46,12 +45,23 @@ class DetectedObject:
         self.width = width
         self.height = height
         self.class_id = class_id
-        self.prob = prob
+        self.score = prob
 
 class ObjectDetection:
     """Object Detection with NNStreamer."""
 
     def __init__(self, argv=None):
+        if len(sys.argv) != 6:
+            print('usage: python3 filename.py [framework] [folder path] [model file] [label file] [box file]')
+            print('       only tensorflow-lite is supported for now')
+            exit(1)
+
+        self.od_framework= sys.argv[1]
+        self.file_path = './' + sys.argv[2] + '/'
+        self.od_model = self.file_path + sys.argv[3]
+        self.od_label = self.file_path + sys.argv[4]
+        self.od_box = self.file_path + sys.argv[5]
+
         self.loop = None
         self.pipeline = None
         self.running = False
@@ -59,10 +69,6 @@ class ObjectDetection:
         self.new_label_index = -1
         self.new_label_score = 0
         
-        self.tflite_model = ''
-        self.label_path = ''
-        self.box_path = ''
-
         self.labels = []
         self.boxes = []
         self.detected_objects = []
@@ -89,7 +95,7 @@ class ObjectDetection:
         self.cairo_valid = None
         self.cairo_vinfo = None
 
-        if not self.tflite_init():
+        if not self.model_init():
             raise Exception
 
         GObject.threads_init()
@@ -109,7 +115,7 @@ class ObjectDetection:
             't. ! queue ! videoconvert ! cairooverlay name=tensor_res ! ximagesink name=img_tensor '
             't. ! queue leaky=2 max-size-buffers=2 ! videoscale ! video/x-raw,width=%d,height=%d,format=RGB ! tensor_converter ! ' % (self.model_width, self.model_height) +
             'tensor_transform mode=arithmetic option=typecast:float32,add:-127.5,div:127.5 ! '
-            'tensor_filter framework=tensorflow-lite model=%s ! ' % (self.tflite_model) + 
+            'tensor_filter framework=%s model=%s ! ' % (self.od_framework, self.od_model) + 
             'tensor_sink name=tensor_sink'
         )
 
@@ -170,14 +176,6 @@ class ObjectDetection:
             format_str = Gst.Format.get_name(data_format)
             logging.debug('[qos] format[%s] processed[%d] dropped[%d]', format_str, processed, dropped)
 
-    # def compare_objs(self, a, b):
-    #     """Compare score of detected objects.
-
-    #     :param a, b: instances of the class DetectedObject
-    #     :return: True if the probability of a is higher
-    #     """
-    #     return a.prob > b.prob
-
     def iou(self, a, b):
         """Intersection of union.
 
@@ -202,7 +200,7 @@ class ObjectDetection:
     def nms(self, detected_objs):
         threshold_iou = 0.5
         num_boxes = len(detected_objs)
-        detected_objs = sorted(detected_objs, key=lambda obj: obj.prob, reverse=True)
+        detected_objs = sorted(detected_objs, key=lambda obj: obj.score, reverse=True)
         to_delete = [False] * num_boxes
 
         for i in range(num_boxes):
@@ -242,7 +240,6 @@ class ObjectDetection:
                 score = 1. / (1. + exp(-detections[label_idx + c]))
                 if score < threshold_score:
                     continue
-                # print(score)
                 detected.append(DetectedObject(x, y, width, height, c, score))
 
         self.nms(detected)
@@ -254,15 +251,16 @@ class ObjectDetection:
         :param buffer: buffer from element
         :return: None
         """
+
         if self.running and buffer.n_memory() == 2:
-            mem_boxes = buffer.get_memory(0) # check if correct
+            mem_boxes = buffer.get_memory(0)
             result, mapinfo_boxes = mem_boxes.map(Gst.MapFlags.READ)
             if result:
                 if mapinfo_boxes.size == self.box_size * self.detection_max * 4:
                     boxes = struct.unpack(str(len(mapinfo_boxes.data)//4) + 'f', mapinfo_boxes.data)
                 else: print('failed')
                     
-            mem_detections = buffer.get_memory(1) # check if correct
+            mem_detections = buffer.get_memory(1)
             result, mapinfo_detections = mem_detections.map(Gst.MapFlags.READ)
             if result:
                 if mapinfo_detections.size == self.label_size * self.detection_max * 4:
@@ -270,6 +268,7 @@ class ObjectDetection:
                     self.get_detected_objects(detections, boxes)
                     mem_boxes.unmap(mapinfo_boxes)
                     mem_detections.unmap(mapinfo_detections)
+                else: print('failed')
 
     # needed?
     def prepare_overlay_cb(self, overlay, caps):
@@ -283,7 +282,7 @@ class ObjectDetection:
             return
         
         draw_cnt = 0
-        context.select_font_face('Sans', cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
+        # context.select_font_face('Sans', cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
         context.set_font_size(20)
 
         for detected_object in self.detected_objects:
@@ -302,8 +301,8 @@ class ObjectDetection:
             context.fill_preserve()
 
             # draw title
-            context.move_to(x + 5, y + 25)
-            context.text_path(label)
+            context.move_to(x, y - 10)
+            context.text_path('%s  %.1f' % (label, detected_object.score))
             context.set_source_rgb(0, 1, 1)
             context.fill_preserve()
             context.set_source_rgb(1, 1, 1)
@@ -324,9 +323,9 @@ class ObjectDetection:
             if self.current_label_index != self.new_label_index:
                 # update textoverlay
                 self.current_label_index = self.new_label_index
-                label = self.tflite_get_label(self.current_label_index)
+                label = self.get_od_label(self.current_label_index)
                 textoverlay = self.pipeline.get_by_name('tensor_res')
-                textoverlay.set_property('text', '%s (%.1f)'%(label, self.score))
+                textoverlay.set_property('text', label)
         return True
 
     def set_window_title(self, name, title):
@@ -344,27 +343,27 @@ class ObjectDetection:
                 tags.add_value(Gst.TagMergeMode.APPEND, 'title', title)
                 pad.send_event(Gst.Event.new_tag(tags))
 
-    def tflite_init(self):
+    def model_init(self):
         """Check tflite model and load labels.
 
         :return: True if successfully initialized
         """
-        tflite_model = 'ssd_mobilenet_v2_coco.tflite'
-        tflite_label = 'coco_labels_list.txt'
-        tflite_box = 'box_priors.txt'
-        current_folder = os.path.dirname(os.path.abspath(__file__))
-        model_folder = os.path.join(current_folder, 'tflite_model')
+        # od_model = 'ssd_mobilenet_v2_coco.tflite'
+        # od_label = 'coco_labels_list.txt'
+        # od_box = 'box_priors.txt'
+        # current_folder = os.path.dirname(os.path.abspath(__file__))
+        # model_folder = os.path.join(current_folder, 'od_model')
 
         # check model file exists
-        self.tflite_model = os.path.join(model_folder, tflite_model)
-        if not os.path.exists(self.tflite_model):
-            logging.error('cannot find tflite model [%s]', self.tflite_model)
-            return False
+        # self.od_model = os.path.join(model_folder, od_model)
+        # if not os.path.exists(self.od_model):
+        #     logging.error('cannot find tflite model [%s]', self.od_model)
+        #     return False
 
         # load box priors
-        self.box_path = os.path.join(model_folder, tflite_box)
+        # self.od_box = os.path.join(model_folder, od_box)
         try:
-            with open(self.box_path, 'r') as box_file:
+            with open(self.od_box, 'r') as box_file:
                 for line in box_file.readlines():
                     box_line = line.split(' ')
                     ws_cnt = 0
@@ -379,27 +378,27 @@ class ObjectDetection:
                         self.boxes.append(box_line)
 
         except FileNotFoundError:
-            logging.error('cannot find tflite box priors [%s]', self.box_path)
+            logging.error('cannot find tflite box priors [%s]', self.od_box)
             return False
 
         logging.info('finished to load box priors')
 
         # load labels
-        self.label_path = os.path.join(model_folder, tflite_label)
+        # self.od_label = os.path.join(model_folder, od_label)
         try:
-            with open(self.label_path, 'r') as label_file:
+            with open(self.od_label, 'r') as label_file:
                 for line in label_file.readlines():
                     if line[-1] == '\n':
                         line = line[:-1]
                     self.labels.append(line)
         except FileNotFoundError:
-            logging.error('cannot find tflite label [%s]', self.label_path)
+            logging.error('cannot find tflite label [%s]', self.od_label)
             return False
         logging.info('finished to load labels, total [%d]', len(self.labels))
 
         return True
 
-    def tflite_get_label(self, index):
+    def get_od_label(self, index):
         """Get label string with given index.
 
         :param index: index for label
@@ -411,27 +410,6 @@ class ObjectDetection:
             label = ''
         return label
 
-    def update_top_label_index(self, data, data_size):
-        """Update tflite label index with max scor
-e.
-
-        :param data: array of scores
-        :param data_size: data size
-        :return: None
-        """
-        # -1 if failed to get max score index
-        self.new_label_index = -1
-
-        if data_size == len(self.labels):
-            scores = [data[i] for i in range(data_size)]
-            max_score = max(scores)
-            if max_score > 0:
-                self.new_label_index = scores.index(max_score)
-                self.new_label_score = max_score
-        else:
-            logging.error('unexpected data size [%d]', data_size)
-
-
 if __name__ == '__main__':
-    od_instance = ObjectDetection(sys.argv[1:])
+    od_instance = ObjectDetection()
     od_instance.run()
