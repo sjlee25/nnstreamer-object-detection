@@ -13,14 +13,14 @@ This app displays video sink.
 'tensor_filter' for image classification.
 Get model by
 $ cd $NNST_ROOT/bin
-$ bash get-model.sh image-classification-tflite
+$ bash get-model.sh object-detection-tflite
 
 'tensor_sink' updates classification result to display in textoverlay.
 
 Run example :
 Before running this example, GST_PLUGIN_PATH should be updated for nnstreamer plugin.
 $ export GST_PLUGIN_PATH=$GST_PLUGIN_PATH:<nnstreamer plugin path>
-$ python nnstreamer_example_image_classification_tflite.py
+$ python3 object_detection_tflite.py tflite_model ssd_mobilenet_v2_coco.tflite coco_labels_list.txt box_priors.txt
 
 See https://lazka.github.io/pgi-docs/#Gst-1.0 for Gst API details.
 """
@@ -39,35 +39,31 @@ gi.require_foreign('cairo')
 from gi.repository import Gst, GObject, GstVideo
 
 class DetectedObject:
-    def __init__(self, x, y, width, height, class_id, prob):
+    def __init__(self, x, y, width, height, class_id, score):
         self.x = x
         self.y = y
         self.width = width
         self.height = height
         self.class_id = class_id
-        self.score = prob
+        self.score = score
 
 class ObjectDetection:
     """Object Detection with NNStreamer."""
 
     def __init__(self, argv=None):
-        if len(sys.argv) != 6:
-            print('usage: python3 filename.py [framework] [folder path] [model file] [label file] [box file]')
-            print('       only tensorflow-lite is supported for now')
+        if len(sys.argv) != 5:
+            print('usage: python3 filename.py [folder path] [model file] [label file] [box file]')
             exit(1)
 
-        self.od_framework= sys.argv[1]
-        self.file_path = './' + sys.argv[2] + '/'
-        self.od_model = self.file_path + sys.argv[3]
-        self.od_label = self.file_path + sys.argv[4]
-        self.od_box = self.file_path + sys.argv[5]
+        self.od_framework= 'tensorflow-lite'
+        self.file_path = './' + sys.argv[1] + '/'
+        self.od_model = self.file_path + sys.argv[2]
+        self.od_label = self.file_path + sys.argv[3]
+        self.od_box = self.file_path + sys.argv[4]
 
         self.loop = None
         self.pipeline = None
         self.running = False
-        self.current_label_index = -1
-        self.new_label_index = -1
-        self.new_label_score = 0
         
         self.labels = []
         self.boxes = []
@@ -91,9 +87,7 @@ class ObjectDetection:
         self.max_object_detection = 5
 
         # cairo overlay state
-        # struct CairoOverlayState in the c++ code
-        self.cairo_valid = None
-        self.cairo_vinfo = None
+        self.cairo_valid = True
 
         if not self.model_init():
             raise Exception
@@ -131,10 +125,7 @@ class ObjectDetection:
         # cairo overlay : boxes for detected objects
         overlay = self.pipeline.get_by_name('tensor_res')
         overlay.connect('draw', self.draw_overlay_cb)
-        overlay.connect('caps-changed', self.prepare_overlay_cb)
-
-        # timer to update result
-        GObject.timeout_add(200, self.on_timer_update_result)
+        # overlay.connect('caps-changed', self.prepare_overlay_cb)
 
         # start pipeline
         self.pipeline.set_state(Gst.State.PLAYING)
@@ -270,12 +261,10 @@ class ObjectDetection:
                     mem_detections.unmap(mapinfo_detections)
                 else: print('failed')
 
-    # needed?
-    def prepare_overlay_cb(self, overlay, caps):
-        # print(self, overlay, caps)
-        # self.cairo_valid = GstVideo.VideoInfo.from_caps(caps)
-        # print('prepare_overlay_cb: cairo_valid = %d' % (self.cairo_valid))
-        self.cairo_valid = True
+    # def prepare_overlay_cb(self, overlay, caps):
+    #     # print(self, overlay, caps)
+    #     # self.cairo_valid = GstVideo.VideoInfo.from_caps(caps)
+    #     self.cairo_valid = True
 
     def draw_overlay_cb(self, overlay, context, timestamp, duration):      
         if not self.cairo_valid or not self.running:
@@ -296,13 +285,13 @@ class ObjectDetection:
             # draw rectangle
             context.rectangle(x, y, width, height)
             context.set_source_rgb(0, 1, 1)
-            context.set_line_width(1.5)
+            context.set_line_width(2.0)
             context.stroke()
             context.fill_preserve()
 
             # draw title
             context.move_to(x, y - 10)
-            context.text_path('%s  %.1f' % (label, detected_object.score))
+            context.text_path('%s  %.1f' % (label, detected_object.score*100))
             context.set_source_rgb(0, 1, 1)
             context.fill_preserve()
             context.set_source_rgb(1, 1, 1)
@@ -313,20 +302,6 @@ class ObjectDetection:
             draw_cnt += 1
             if draw_cnt >= self.max_object_detection:
                 break
-
-    def on_timer_update_result(self):
-        """Timer callback for textoverlay.
-
-        :return: True to ensure the timer continues
-        """
-        if self.running:
-            if self.current_label_index != self.new_label_index:
-                # update textoverlay
-                self.current_label_index = self.new_label_index
-                label = self.get_od_label(self.current_label_index)
-                textoverlay = self.pipeline.get_by_name('tensor_res')
-                textoverlay.set_property('text', label)
-        return True
 
     def set_window_title(self, name, title):
         """Set window title.
