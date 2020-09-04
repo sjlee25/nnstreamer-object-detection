@@ -84,7 +84,11 @@ class ObjectDetection:
         self.detection_max = 1917
         
         # max objects in display
-        self.max_object_detection = 5
+        self.max_object_detection = 20
+
+        # threshold values to drop detections
+        self.threshold_iou = 0.5
+        self.threshold_score = 0.3
 
         # cairo overlay state
         self.cairo_valid = True
@@ -173,23 +177,23 @@ class ObjectDetection:
         :param a, b: instances of the class DetectedObject
         :return: ratio of intersection area if it is positive or else 0
         """
-        x1 = max(a.x, b.x)
-        y1 = max(a.y, b.y)
-        x2 = min(a.x + a.width, b.x + b.width)
-        y2 = min(a.y + a.height, b.y + b.height)
-        w = max(0, (x2 - x1 + 1))
-        h = max(0, (y2 - y1 + 1))
+        x1 = a.x if a.x >= b.x else b.x
+        y1 = a.y if a.y >= b.y else b.y
+        x2 = a.x + a.width if a.x + a.width >= b.x + b.width else b.x + b.width
+        y2 = a.y + a.height if a.y + a.height <= b.y + b.height else b.y + b.height
+        w = x2 - x1 + 1 if x2 - x1 + 1 >= 0 else 0
+        h = y2 - y1 + 1 if y2 - y1 + 1 >= 0 else 0
+        
         inter = w * h
         area_a = a.width * a.height
         area_b = b.width * b.height
         ratio = inter / (area_a + area_b - inter)
 
-        return max(ratio, 0)
+        return ratio if ratio >= 0 else 0
 
     # pass only one box which has higher probability out of two
     # if their iou value is higher than the threshold
     def nms(self, detected_objs):
-        threshold_iou = 0.5
         num_boxes = len(detected_objs)
         detected_objs = sorted(detected_objs, key=lambda obj: obj.score, reverse=True)
         to_delete = [False] * num_boxes
@@ -197,7 +201,7 @@ class ObjectDetection:
         for i in range(num_boxes):
             if to_delete[i]: continue
             for j in range(i + 1, num_boxes):
-                if self.iou(detected_objs[i], detected_objs[j]) > threshold_iou:
+                if self.iou(detected_objs[i], detected_objs[j]) > self.threshold_iou:
                     to_delete[j] = True
 
         self.detected_objects.clear()
@@ -206,7 +210,6 @@ class ObjectDetection:
                 self.detected_objects.append(detected_objs[i])
 
     def get_detected_objects(self, detections, boxes):
-        threshold_score = 0.5
         detected = []
 
         for i in range(self.detection_max):
@@ -227,11 +230,11 @@ class ObjectDetection:
             width = (x_max - x_min) * self.model_width
             height = (y_max - y_min) * self.model_height
 
-            for c in range(1, self.label_size):
-                score = 1. / (1. + exp(-detections[label_idx + c]))
-                if score < threshold_score:
+            for l in range(1, self.label_size):
+                score = 1. / (1. + exp(-detections[label_idx + l]))
+                if score < self.threshold_score:
                     continue
-                detected.append(DetectedObject(x, y, width, height, c, score))
+                detected.append(DetectedObject(x, y, width, height, l, score))
 
         self.nms(detected)
 
@@ -243,19 +246,21 @@ class ObjectDetection:
         :return: None
         """
 
+        # [0] dim of boxes > BOX_SIZE : 1 : DETECTION_MAX : 1 (4:1:1917:1)
+        # [1] dim of labels > LABEL_SIZE : DETECTION_MAX : 1 (91:1917:1)
         if self.running and buffer.n_memory() == 2:
             mem_boxes = buffer.get_memory(0)
             result, mapinfo_boxes = mem_boxes.map(Gst.MapFlags.READ)
             if result:
                 if mapinfo_boxes.size == self.box_size * self.detection_max * 4:
-                    boxes = struct.unpack(str(len(mapinfo_boxes.data)//4) + 'f', mapinfo_boxes.data)
+                    boxes = struct.unpack(str(self.box_size * self.detection_max) + 'f', mapinfo_boxes.data)
                 else: print('failed')
                     
             mem_detections = buffer.get_memory(1)
             result, mapinfo_detections = mem_detections.map(Gst.MapFlags.READ)
             if result:
                 if mapinfo_detections.size == self.label_size * self.detection_max * 4:
-                    detections = struct.unpack(str(len(mapinfo_detections.data)//4) + 'f', mapinfo_detections.data)
+                    detections = struct.unpack(str(self.label_size * self.detection_max) + 'f', mapinfo_detections.data)
                     self.get_detected_objects(detections, boxes)
                     mem_boxes.unmap(mapinfo_boxes)
                     mem_detections.unmap(mapinfo_detections)
