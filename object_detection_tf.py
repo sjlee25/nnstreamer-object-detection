@@ -67,17 +67,16 @@ class ObjectDetection:
         self.labels = []
         self.detected_objects = []
 
-        self.video_width = 640
-        self.video_height = 480
-        self.model_width = 640
-        self.model_height = 480
+        # change to 640 * 480 if error occurs
+        self.video_width = 1280
+        self.video_height = 720
 
         self.box_size = 4
         # self.label_size = 91
         self.detection_max = 100
         
         # max objects in display
-        self.max_object_detection = 20
+        # self.max_object_detection = 20
 
         # threshold values to drop detections
         self.threshold_iou = 0.5
@@ -215,16 +214,17 @@ class ObjectDetection:
             if obj_score < self.threshold_score: continue
             obj_class = int(classes[idx])
 
+            # [y_min, x_min, y_max, x_max]
             box_idx = self.box_size * idx
-            x_min = boxes[box_idx + 0]
-            x_max = boxes[box_idx + 1]
-            y_min = boxes[box_idx + 2]
-            y_max = boxes[box_idx + 3]
+            x_min = boxes[box_idx +  1]
+            x_max = boxes[box_idx + 3]
+            y_min = boxes[box_idx + 0]
+            y_max = boxes[box_idx + 2]
 
-            x = x_min * self.model_width
-            y = y_min * self.model_height
-            width = (x_max - x_min) * self.model_width
-            height = (y_max - y_min) * self.model_height
+            x = x_min * self.video_width
+            y = y_min * self.video_height
+            width = (x_max - x_min) * self.video_width
+            height = (y_max - y_min) * self.video_height
 
             detected.append(DetectedObject(x, y, width, height, obj_class, obj_score))
             added_objects += 1
@@ -269,38 +269,32 @@ class ObjectDetection:
         if not self.cairo_valid or not self.running:
             return
         
-        draw_cnt = 0
-        # context.select_font_face('Sans', cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
+        # draw_cnt = 0
+        context.select_font_face('Sans', cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
         context.set_font_size(20)
+        context.set_source_rgb(0.1, 1.0, 0.8)
+        context.set_line_width(2.0)
 
         for detected_object in self.detected_objects:
+            x = detected_object.x
+            y = detected_object.y
+            width = detected_object.width
+            height = detected_object.height
+
             label = self.labels[detected_object.class_id]
-            
-            x = detected_object.x * self.video_width / self.model_width
-            y = detected_object.y * self.video_height / self.model_height
-            width = detected_object.width * self.video_width / self.model_width
-            height = detected_object.height * self.video_height / self.model_height
+            score = detected_object.score
 
             # draw rectangle
             context.rectangle(x, y, width, height)
-            context.set_source_rgb(0, 1, 1)
-            context.set_line_width(2.0)
-            context.stroke()
-            context.fill_preserve()
+            context.stroke_preserve()
 
             # draw title
-            context.move_to(x, y - 10)
-            context.text_path('%s  %.2f' % (label, detected_object.score))
-            context.set_source_rgb(0, 1, 1)
-            context.fill_preserve()
-            context.set_source_rgb(1, 1, 1)
-            context.set_line_width(0.3)
-            context.stroke()
-            context.fill_preserve()
+            context.move_to(x - 1, y - 8)
+            context.show_text('%s  %.2f' % (label, score))
 
-            draw_cnt += 1
-            if draw_cnt >= self.max_object_detection:
-                break
+            # draw_cnt += 1
+            # if draw_cnt >= self.max_object_detection:
+            #     break
 
     def set_window_title(self, name, title):
         """Set window title.
