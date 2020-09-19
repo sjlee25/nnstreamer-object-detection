@@ -20,7 +20,8 @@ $ bash get-model.sh object-detection-tf
 Run example :
 Before running this example, GST_PLUGIN_PATH should be updated for nnstreamer plugin.
 $ export GST_PLUGIN_PATH=$GST_PLUGIN_PATH:<nnstreamer plugin path>
-$ python3 object_detection_tf.py 
+    a) $ python3 object_detection_tf.py
+    b) $ python3 object_detection_tf.py [model_path] [label_path]
 
 See https://lazka.github.io/pgi-docs/#Gst-1.0 for Gst API details.
 """
@@ -51,14 +52,17 @@ class ObjectDetection:
     """Object Detection with NNStreamer."""
 
     def __init__(self, argv=None):
-        if len(sys.argv) != 4:
-            print('usage: python3 filename.py [folder path] [model file] [label file]')
+        if len(sys.argv) != 1 and len(sys.argv) != 3:
+            print('usage: python3 object_detection_tf.py [model path] [label path]')
             exit(1)
 
         self.od_framework= 'tensorflow'
-        self.file_path = './' + sys.argv[1] + '/'
-        self.od_model = self.file_path + sys.argv[2]
-        self.od_label = self.file_path + sys.argv[3]
+        if len(sys.argv) == 1:
+            self.od_model = '/usr/lib/nnstreamer/bin/tf_model/ssdlite_mobilenet_v2.pb'
+            self.od_label = '/usr/lib/nnstreamer/bin/tf_model/coco_labels_list.txt'
+        else:
+            self.od_model = sys.argv[1]
+            self.od_label = sys.argv[2]
 
         self.loop = None
         self.pipeline = None
@@ -281,7 +285,7 @@ class ObjectDetection:
             width = detected_object.width
             height = detected_object.height
 
-            label = self.labels[detected_object.class_id]
+            label = self.get_label(detected_object.class_id)
             score = detected_object.score
 
             # draw rectangle
@@ -343,7 +347,7 @@ class ObjectDetection:
 
         return True
 
-    def get_od_label(self, index):
+    def get_label(self, index):
         """Get label string with given index.
 
         :param index: index for label

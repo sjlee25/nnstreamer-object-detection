@@ -20,7 +20,8 @@ $ bash get-model.sh object-detection-tflite
 Run example :
 Before running this example, GST_PLUGIN_PATH should be updated for nnstreamer plugin.
 $ export GST_PLUGIN_PATH=$GST_PLUGIN_PATH:<nnstreamer plugin path>
-$ python3 object_detection_tflite.py tflite_model ssd_mobilenet_v2_coco.tflite coco_labels_list.txt box_priors.txt
+$ python3 object_detection_tflite.py
+$ python3 object_detection_tflite.py 
 
 See https://lazka.github.io/pgi-docs/#Gst-1.0 for Gst API details.
 """
@@ -51,15 +52,19 @@ class ObjectDetection:
     """Object Detection with NNStreamer."""
 
     def __init__(self, argv=None):
-        if len(sys.argv) != 5:
-            print('usage: python3 filename.py [folder path] [model file] [label file] [box file]')
+        if len(sys.argv) != 1 and len(sys.argv) != 4:
+            print('usage: python3 object_detection_tflite.py [model path] [label path] [box path]')
             exit(1)
 
         self.od_framework= 'tensorflow-lite'
-        self.file_path = './' + sys.argv[1] + '/'
-        self.od_model = self.file_path + sys.argv[2]
-        self.od_label = self.file_path + sys.argv[3]
-        self.od_box = self.file_path + sys.argv[4]
+        if len(sys.argv) == 1:
+            self.od_model = '/usr/lib/nnstreamer/bin/tflite_model/ssd_mobilenet_v2_coco.tflite'
+            self.od_label = '/usr/lib/nnstreamer/bin/tflite_model/coco_labels_list.txt'
+            self.od_box = '/usr/lib/nnstreamer/bin/tflite_model/box_priors.txt'
+        else:
+            self.od_model = sys.argv[2]
+            self.od_label = sys.argv[3]
+            self.od_box = sys.argv[4]
 
         self.loop = None
         self.pipeline = None
