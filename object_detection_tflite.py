@@ -20,8 +20,8 @@ $ bash get-model.sh object-detection-tflite
 Run example :
 Before running this example, GST_PLUGIN_PATH should be updated for nnstreamer plugin.
 $ export GST_PLUGIN_PATH=$GST_PLUGIN_PATH:<nnstreamer plugin path>
-$ python3 object_detection_tflite.py
-$ python3 object_detection_tflite.py 
+    a) $ python3 object_detection_tflite.py
+    b) $ python3 object_detection_tflite.py [model_path] [label_path] [box_path]
 
 See https://lazka.github.io/pgi-docs/#Gst-1.0 for Gst API details.
 """
