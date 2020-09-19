@@ -285,7 +285,7 @@ class ObjectDetection:
         context.set_font_size(20)
 
         for detected_object in self.detected_objects:
-            label = self.labels[detected_object.class_id]
+            label = self.get_label(detected_object.class_id)
             
             x = detected_object.x * self.video_width / self.model_width
             y = detected_object.y * self.video_height / self.model_height
@@ -383,7 +383,7 @@ class ObjectDetection:
 
         return True
 
-    def get_od_label(self, index):
+    def get_label(self, index):
         """Get label string with given index.
 
         :param index: index for label
