@@ -26,6 +26,7 @@ $ export GST_PLUGIN_PATH=$GST_PLUGIN_PATH:<nnstreamer plugin path>
 See https://lazka.github.io/pgi-docs/#Gst-1.0 for Gst API details.
 """
 
+from argparse import ArgumentParser
 import os
 import sys
 import logging
@@ -52,17 +53,16 @@ class ObjectDetection:
     """Object Detection with NNStreamer."""
 
     def __init__(self, argv=None):
-        if len(sys.argv) != 1 and len(sys.argv) != 3:
-            print('usage: python3 object_detection_tf.py [model path] [label path]')
-            exit(1)
+        parser = ArgumentParser()
+        parser.add_argument('--model', type=str, help='tf model path')
+        parser.add_argument('--label', type=str, help='tf label path')
+
+        args = parser.parse_args()
 
         self.od_framework= 'tensorflow'
-        if len(sys.argv) == 1:
-            self.od_model = '/usr/lib/nnstreamer/bin/tf_model/ssdlite_mobilenet_v2.pb'
-            self.od_label = '/usr/lib/nnstreamer/bin/tf_model/coco_labels_list.txt'
-        else:
-            self.od_model = sys.argv[1]
-            self.od_label = sys.argv[2]
+        
+        self.od_model = args.model if args.model else '/usr/lib/nnstreamer/bin/tf_model/ssdlite_mobilenet_v2.pb'
+        self.od_label = args.label if args.label else '/usr/lib/nnstreamer/bin/tf_model/coco_labels_list.txt'
 
         self.loop = None
         self.pipeline = None
