@@ -33,13 +33,12 @@ import gi
 from math import exp
 import cairo
 import struct
+import numpy as np
 
 gi.require_version('Gst', '1.0')
 gi.require_version('GstVideo', '1.0')
 gi.require_foreign('cairo')
 from gi.repository import Gst, GObject, GstVideo
-
-import numpy as np
 
 class DetectedObject:
     def __init__(self, x, y, width, height, class_id, score):
@@ -60,20 +59,20 @@ class ObjectDetection:
 
         self.od_framework= 'tensorflow'
         if len(sys.argv) == 1:
-            self.model_path = 'yolov3/frozen_tiny_yolo_v3.pb'
+            self.model_path = 'yolov3/frozen_yolov3_tiny.pb'
             self.label_path = 'yolov3/coco.names'
-            self.anchor_path = 'yolov3/coco_anchors.txt'
+            # self.anchor_path = 'yolov3/basline_anchors.txt'
         else:
             self.model_path = sys.argv[1]
             self.label_path = sys.argv[2]
-            self.anchor_path = sys.argv[3]
+            # self.anchor_path = sys.argv[3]
 
         self.loop = None
         self.pipeline = None
         self.running = False
         
         self.labels = {}
-        self.anchors = []
+        # self.anchors = []
         self.bboxes = []
 
         self.video_width = 1280
@@ -101,10 +100,10 @@ class ObjectDetection:
                 self.labels[ID] = name.strip('\n')
 
         # load anchors
-        with open(self.anchor_path) as f:
-            self.anchors = f.readline()
-            self.anchors = np.array(self.anchors.split(','), dtype=np.float32)
-            self.anchors.reshape([3, 3, 2])
+        # with open(self.anchor_path) as f:
+        #     self.anchors = f.readline()
+        #     self.anchors = np.array(self.anchors.split(','), dtype=np.float32)
+        #     self.anchors.reshape([3, 3, 2])
 
         GObject.threads_init()
         Gst.init(argv)
@@ -117,16 +116,18 @@ class ObjectDetection:
         # main loop
         self.loop = GObject.MainLoop()
 
-        # new tf pipeline
+        # new tf pipeline (NHWC format)
         self.pipeline = Gst.parse_launch(
             'v4l2src name=cam_src ! videoscale ! videoconvert ! video/x-raw,width=%d,height=%d,format=RGB,framerate=30/1 ! tee name=t ' % (self.video_width, self.video_height) +
             't. ! queue ! videoconvert ! cairooverlay name=tensor_res ! ximagesink name=img_tensor '
             't. ! queue leaky=2 max-size-buffers=1 ! videoscale ! video/x-raw,width=%d,height=%d,format=RGB ! ' % (self.model_width, self.model_height) + 
                 'tensor_converter input-dim=3:%d:%d:1 ! ' % (self.model_width, self.model_height) + 
-                'tensor_transform mode=arithmetic option=typecast:float32,add:-127.5,div:127.5 ! '
+                'tensor_transform mode=typecast option=float32 ! '
+                # 'tensor_transform mode=arithmetic option=typecast:float32,add:-127.5,div:127.5 ! '
                 'tensor_filter framework=%s model=%s ' % (self.od_framework, self.model_path) + 
                     'input=3:%d:%d:1 inputname=inputs inputtype=float32 ' % (self.model_width, self.model_height) + 
                     'output=85:2535:1 outputname=output_boxes outputtype=float32 ! '
+                    # 'output=85:507:1,85:2028:1 outputname=detector/yolo-v3-tiny/detect_1,detector/yolo-v3-tiny/detect_2 outputtype=float32,float32 ! '
                 'tensor_sink name=tensor_sink'
         )
         print('Pipeline checked!')
@@ -185,13 +186,13 @@ class ObjectDetection:
             format_str = Gst.Format.get_name(data_format)
             logging.debug('[qos] format[%s] processed[%d] dropped[%d]', format_str, processed, dropped)
 
-    def get_arr_from_buffer(self, buffer, idx, expected_size, get_type):
+    def get_arr_from_buffer(self, buffer, idx, expected_size, data_type):
         buffer_content = buffer.get_memory(idx)
         result, mapinfo_content = buffer_content.map(Gst.MapFlags.READ)
 
         if result:
             if mapinfo_content.size == expected_size*4:
-                content_arr = struct.unpack(str(expected_size)+get_type, mapinfo_content.data)
+                content_arr = np.array(struct.unpack(str(expected_size)+data_type, mapinfo_content.data), dtype='float32')
                 return content_arr
         else:
             print('Error: getting memory from buffer with index %d failed' % (idx))
@@ -208,19 +209,16 @@ class ObjectDetection:
         if not self.running or buffer.n_memory() != 1:
             return
         
-        # output shape: [1][2535=3*(13*13+26*26)][85=80(class scores)+4(box)+1(object score)]
-        # detections = np.array(self.get_arr_from_buffer(buffer, 0, 2535*85, 'f')).reshape((3, 845, 85))
-        pred_bbox = np.array(self.get_arr_from_buffer(buffer, 0, 2535*85, 'f')).reshape((-1, 85))
-        # detections = np.split(detections, [169], axis=1)
-        # print(len(detections), len(detections[0][0]), len(detections[1][0]))
-        # pred_mbbox = detections[0].reshape((3, 13, 13, 85))
-        # pred_sbbox = detections[1].reshape((3, 26, 26, 85))
+        # output shape: [1][2535 = 3 * (13*13 + 26*26)][85 = 4(x_min, y_min, x_max, y_max) + 1(confidence) + 80(class scores)]
+        pred_bbox = self.get_arr_from_buffer(buffer, 0, 2535*85, 'f').reshape((-1, 85))
         
-        self. bboxes = self.postprocess_boxes(pred_bbox, [self.video_height, self.video_width], self.model_height, 0.3)
-        print('on_new_data: %d bboxes' % (len(self.bboxes)))
-        self.bboxes = self.nms(self.bboxes, 0.45, method='nms')
+        # pred_sbbox = self.get_arr_from_buffer(buffer, 0, 507*85, 'f').reshape((507, 85))
+        # pred_mbbox = self.get_arr_from_buffer(buffer, 1, 2028*85, 'f').reshape((2028, 85))
+        # pred_bbox = np.concatenate((pred_sbbox, pred_mbbox), axis=0)
         
-
+        bboxes = self.postprocess_boxes(pred_bbox, (self.video_height, self.video_width), self.model_height, 0.3)
+        self.bboxes = self.nms(bboxes, 0.45, method='nms')
+        
     def draw_overlay_cb(self, overlay, context, timestamp, duration):      
         if not self.cairo_valid or not self.running:
             return
@@ -232,7 +230,6 @@ class ObjectDetection:
         context.set_line_width(2.0)
 
         # bboxes: [x_min, y_min, x_max, y_max, probability, cls_id] format coordinates.
-        print('draw_overlay_cb: %d bboxes' % (len(self.bboxes)))
         for detected_object in self.bboxes:
             x = detected_object[0]
             y = detected_object[1]
@@ -240,8 +237,7 @@ class ObjectDetection:
             height = detected_object[3] - y
 
             score = detected_object[4]
-            label_id = detected_object[5]
-            label = self.labels[label_id]
+            label = self.labels[detected_object[5]]
 
             # draw rectangle
             context.rectangle(x, y, width, height)
@@ -292,7 +288,6 @@ class ObjectDetection:
         ious          = np.maximum(1.0 * inter_area / union_area, np.finfo(np.float32).eps)
 
         return ious
-
 
     def nms(self, bboxes, iou_threshold, sigma=0.3, method='nms'):
         """
