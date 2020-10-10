@@ -66,7 +66,7 @@ class ObjectDetection:
         self.od_model = args.model if args.model else '/usr/lib/nnstreamer/bin/tf_model/ssdlite_mobilenet_v2.pb'
         self.od_label = args.label if args.label else '/usr/lib/nnstreamer/bin/tf_model/coco_labels_list.txt'
         self.use_web_cam = args.use_web_cam if args.use_web_cam else False
-        self.file_path = args.file if args.file else 'test_video_street.mp4'
+        self.file_path = args.file if args.file else './video/test_video_street.mp4'
         
 
         self.loop = None
