@@ -55,7 +55,9 @@ class ObjectDetection:
     def __init__(self, argv=None):
         parser = ArgumentParser()
         parser.add_argument('--model', type=str, help='tf model path')
-        parser.add_argument('--label', type=str, help='tf label path')
+        parser.add_argument('--label', type=str, help='label path')
+        parser.add_argument('--use_web_cam', type=bool, help='set true to use web cam')
+        parser.add_argument('--file', type=str, help='file path')
 
         args = parser.parse_args()
 
@@ -63,6 +65,9 @@ class ObjectDetection:
         
         self.od_model = args.model if args.model else '/usr/lib/nnstreamer/bin/tf_model/ssdlite_mobilenet_v2.pb'
         self.od_label = args.label if args.label else '/usr/lib/nnstreamer/bin/tf_model/coco_labels_list.txt'
+        self.use_web_cam = args.use_web_cam if args.use_web_cam else False
+        self.file_path = args.file if args.file else 'test_video_street.mp4'
+        
 
         self.loop = None
         self.pipeline = None
@@ -104,8 +109,22 @@ class ObjectDetection:
         self.loop = GObject.MainLoop()
 
         # new tf pipeline
-        self.pipeline = Gst.parse_launch(
-            'v4l2src name=cam_src ! videoscale ! videoconvert ! video/x-raw,width=%d,height=%d,format=RGB,framerate=30/1 ! tee name=t ' % (self.video_width, self.video_height) +
+
+        if self.use_web_cam :
+            self.pipeline = Gst.parse_launch(
+                'v4l2src name=cam_src ! videoscale ! videoconvert ! video/x-raw,width=%d,height=%d,format=RGB,framerate=30/1 ! tee name=t ' % (self.video_width, self.video_height) +
+                't. ! queue ! videoconvert ! cairooverlay name=tensor_res ! ximagesink name=img_tensor '
+                't. ! queue leaky=2 max-size-buffers=4 ! videoscale ! tensor_converter ! '
+                    'tensor_filter framework=%s model=%s ' % (self.od_framework, self.od_model) +
+                        'input=3:%d:%d:1 inputname=image_tensor inputtype=uint8 ' % (self.video_width, self.video_height) +
+                        'output=1,%d:1,%d:1,%d:%d:1 ' % (self.detection_max, self.detection_max, self.box_size, self.detection_max) +
+                        'outputname=num_detections,detection_classes,detection_scores,detection_boxes '
+                        'outputtype=float32,float32,float32,float32 ! '
+                    'tensor_sink name=tensor_sink'
+            )
+        else :
+            self.pipeline = Gst.parse_launch(
+            'filesrc location=%s ! decodebin ! videoscale ! videorate ! videoconvert ! timeoverlay ! video/x-raw,width=%d,height=%d,format=RGB,framerate=30/1 ! tee name=t ' % (self.file_path, self.video_width, self.video_height) +
             't. ! queue ! videoconvert ! cairooverlay name=tensor_res ! ximagesink name=img_tensor '
             't. ! queue leaky=2 max-size-buffers=4 ! videoscale ! tensor_converter ! '
                 'tensor_filter framework=%s model=%s ' % (self.od_framework, self.od_model) +
@@ -114,7 +133,7 @@ class ObjectDetection:
                     'outputname=num_detections,detection_classes,detection_scores,detection_boxes '
                     'outputtype=float32,float32,float32,float32 ! '
                 'tensor_sink name=tensor_sink'
-        )
+            )
 
         # bus and message callback
         bus = self.pipeline.get_bus()
