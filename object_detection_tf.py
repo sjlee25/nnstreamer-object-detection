@@ -56,7 +56,7 @@ class ObjectDetection:
         parser = ArgumentParser()
         parser.add_argument('--model', type=str, help='tf model path')
         parser.add_argument('--label', type=str, help='label path')
-        parser.add_argument('--use_web_cam', type=bool, help='set true to use web cam')
+        parser.add_argument('--use_web_cam', type=bool, help='set True to use web cam')
         parser.add_argument('--file', type=str, help='file path')
 
         args = parser.parse_args()
