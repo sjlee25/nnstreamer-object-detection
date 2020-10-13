@@ -60,8 +60,8 @@ class ObjectDetection:
 
         self.od_framework= 'tensorflow'
         if len(sys.argv) == 1:
-            self.model_path = 'yolov3/frozen_yolov3_tiny.pb'
-            self.label_path = 'yolov3/coco.names'
+            self.model_path = './models/yolov3/frozen_yolov3_tiny.pb'
+            self.label_path = './models/yolov3/coco.names'
         else:
             self.model_path = sys.argv[1]
             self.label_path = sys.argv[2]

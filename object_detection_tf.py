@@ -63,8 +63,8 @@ class ObjectDetection:
 
         self.od_framework= 'tensorflow'
         
-        self.od_model = args.model if args.model else './ssdlite_v2/ssdlite_mobilenet_v2.pb'
-        self.od_label = args.label if args.label else './ssdlite_v2/coco_labels_list.txt'
+        self.od_model = args.model if args.model else './models/ssdlite_v2/ssdlite_mobilenet_v2.pb'
+        self.od_label = args.label if args.label else './models/ssdlite_v2/coco_labels_list.txt'
         self.use_web_cam = args.use_web_cam if args.use_web_cam else False
         self.file_path = args.file if args.file else './video/test_video_street.mp4'
         
