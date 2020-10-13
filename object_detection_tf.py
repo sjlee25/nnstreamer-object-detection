@@ -63,8 +63,8 @@ class ObjectDetection:
 
         self.od_framework= 'tensorflow'
         
-        self.od_model = args.model if args.model else '/usr/lib/nnstreamer/bin/tf_model/ssdlite_mobilenet_v2.pb'
-        self.od_label = args.label if args.label else '/usr/lib/nnstreamer/bin/tf_model/coco_labels_list.txt'
+        self.od_model = args.model if args.model else './ssdlite_v2/ssdlite_mobilenet_v2.pb'
+        self.od_label = args.label if args.label else './ssdlite_v2/coco_labels_list.txt'
         self.use_web_cam = args.use_web_cam if args.use_web_cam else False
         self.file_path = args.file if args.file else './video/test_video_street.mp4'
         
@@ -261,11 +261,12 @@ class ObjectDetection:
         if result:
             if mapinfo_content.size == expected_size:
                 content_arr = struct.unpack(str(expected_size//4)+get_type, mapinfo_content.data)
+                buffer_content.unmap(mapinfo_content)
+                return content_arr
         else:
             print('Error: getting memory from buffer with index %d failed' % (idx))
+            buffer_content.unmap(mapinfo_content)
             exit(1)
-        
-        return content_arr
 
     def on_new_data(self, sink, buffer):
         """Callback for tensor sink signal.

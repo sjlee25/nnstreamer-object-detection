@@ -34,6 +34,7 @@ from math import exp
 import cairo
 import struct
 import numpy as np
+import colorsys
 
 gi.require_version('Gst', '1.0')
 gi.require_version('GstVideo', '1.0')
@@ -61,18 +62,16 @@ class ObjectDetection:
         if len(sys.argv) == 1:
             self.model_path = 'yolov3/frozen_yolov3_tiny.pb'
             self.label_path = 'yolov3/coco.names'
-            # self.anchor_path = 'yolov3/basline_anchors.txt'
         else:
             self.model_path = sys.argv[1]
             self.label_path = sys.argv[2]
-            # self.anchor_path = sys.argv[3]
+        self.file_path = 'video/test_video_street.mp4'
 
         self.loop = None
         self.pipeline = None
         self.running = False
         
         self.labels = {}
-        # self.anchors = []
         self.bboxes = []
 
         self.video_width = 1280
@@ -80,30 +79,30 @@ class ObjectDetection:
         self.model_width = 416
         self.model_height = 416
 
+        self.resize_ratio = min(self.model_width / self.video_width, self.model_height / self.video_height)
+        self.dw = (self.model_width - self.resize_ratio * self.video_width) / 2.
+        self.dh = (self.model_height - self.resize_ratio * self.video_height) / 2.
+
         self.box_size = 4
-        self.label_size = 80
-        # self.detection_max = 100
-        
-        # max objects in display
-        # self.max_object_detection = 20
+        self.num_labels = 80
 
         # threshold values to drop detections
-        self.threshold_iou = 0.5
-        self.threshold_score = 0.3
+        self.iou_threshold = 0.45
+        self.score_threshold = 0.3
 
         # cairo overlay state
         self.cairo_valid = True
+        self.valid_scale=[0, np.inf]
 
         # load labels
         with open(self.label_path, 'r') as data:
             for ID, name in enumerate(data):
                 self.labels[ID] = name.strip('\n')
 
-        # load anchors
-        # with open(self.anchor_path) as f:
-        #     self.anchors = f.readline()
-        #     self.anchors = np.array(self.anchors.split(','), dtype=np.float32)
-        #     self.anchors.reshape([3, 3, 2])
+        # set colors for overlay
+        hsv_tuples = [(1.0 * x / self.num_labels, 1., 1.) for x in range(self.num_labels)]
+        colors = list(map(lambda x: colorsys.hsv_to_rgb(*x), hsv_tuples))
+        self.colors = list(map(lambda x: (int(x[0] * 255), int(x[1] * 255), int(x[2] * 255)), colors))
 
         GObject.threads_init()
         Gst.init(argv)
@@ -118,11 +117,11 @@ class ObjectDetection:
 
         # new tf pipeline (NHWC format)
         self.pipeline = Gst.parse_launch(
-            'v4l2src name=cam_src ! videoscale ! videoconvert ! video/x-raw,width=%d,height=%d,format=RGB,framerate=30/1 ! tee name=t ' % (self.video_width, self.video_height) +
+            # 'v4l2src name=cam_src ! videoscale ! videoconvert ! video/x-raw,width=%d,height=%d,format=RGB,framerate=30/1 ! tee name=t ' % (self.video_width, self.video_height) +
+            'filesrc location=%s ! decodebin ! videoscale ! videorate ! videoconvert ! timeoverlay ! video/x-raw,width=%d,height=%d,format=RGB,framerate=30/1 ! tee name=t ' % (self.file_path, self.video_width, self.video_height) +
             't. ! queue ! videoconvert ! cairooverlay name=tensor_res ! ximagesink name=img_tensor '
             't. ! queue leaky=2 max-size-buffers=1 ! videoscale ! video/x-raw,width=%d,height=%d,format=RGB ! ' % (self.model_width, self.model_height) + 
-                'tensor_converter input-dim=3:%d:%d:1 ! ' % (self.model_width, self.model_height) + 
-                'tensor_transform mode=typecast option=float32 ! '
+                'tensor_converter ! tensor_transform mode=typecast option=float32 ! ' # input-dim=3:%d:%d:1 ! ' % (self.model_width, self.model_height)
                 # 'tensor_transform mode=arithmetic option=typecast:float32,add:-127.5,div:127.5 ! '
                 'tensor_filter framework=%s model=%s ' % (self.od_framework, self.model_path) + 
                     'input=3:%d:%d:1 inputname=inputs inputtype=float32 ' % (self.model_width, self.model_height) + 
@@ -146,12 +145,12 @@ class ObjectDetection:
         overlay.connect('draw', self.draw_overlay_cb)
         # overlay.connect('caps-changed', self.prepare_overlay_cb)
 
+        # set window title
+        self.set_window_title('img_tensor', 'YOLOv3-tiny OD')
+
         # start pipeline
         self.pipeline.set_state(Gst.State.PLAYING)
         self.running = True
-
-        # set window title
-        self.set_window_title('img_tensor', 'YOLOv3 Object Detection')
 
         # run main loop
         self.loop.run()
@@ -159,7 +158,6 @@ class ObjectDetection:
         # quit when received eos or error message
         self.running = False
         self.pipeline.set_state(Gst.State.NULL)
-
         bus.remove_signal_watch()
 
     def on_bus_message(self, bus, message):
@@ -192,9 +190,11 @@ class ObjectDetection:
 
         if result:
             if mapinfo_content.size == expected_size*4:
-                content_arr = np.array(struct.unpack(str(expected_size)+data_type, mapinfo_content.data), dtype='float32')
+                content_arr = np.array(struct.unpack(str(expected_size)+data_type, mapinfo_content.data), dtype='float64')
+                buffer_content.unmap(mapinfo_content)
                 return content_arr
         else:
+            buffer_content.unmap(mapinfo_content)
             print('Error: getting memory from buffer with index %d failed' % (idx))
             exit(1)
 
@@ -212,33 +212,32 @@ class ObjectDetection:
         # output shape: [1][2535 = 3 * (13*13 + 26*26)][85 = 4(x_min, y_min, x_max, y_max) + 1(confidence) + 80(class scores)]
         pred_bbox = self.get_arr_from_buffer(buffer, 0, 2535*85, 'f').reshape((-1, 85))
         
-        # pred_sbbox = self.get_arr_from_buffer(buffer, 0, 507*85, 'f').reshape((507, 85))
-        # pred_mbbox = self.get_arr_from_buffer(buffer, 1, 2028*85, 'f').reshape((2028, 85))
-        # pred_bbox = np.concatenate((pred_sbbox, pred_mbbox), axis=0)
-        
-        bboxes = self.postprocess_boxes(pred_bbox, (self.video_height, self.video_width), self.model_height, 0.3)
-        self.bboxes = self.nms(bboxes, 0.45, method='nms')
+        bboxes = self.postprocess_boxes(pred_bbox)
+        self.bboxes = self.nms(bboxes, method='nms')
         
     def draw_overlay_cb(self, overlay, context, timestamp, duration):      
         if not self.cairo_valid or not self.running:
             return
-        
+    
         # draw_cnt = 0
         context.select_font_face('Sans', cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
         context.set_font_size(20)
-        context.set_source_rgb(0.1, 1.0, 0.8)
-        context.set_line_width(2.0)
+        context.set_line_width(2.5)
 
         # bboxes: [x_min, y_min, x_max, y_max, probability, cls_id] format coordinates.
         for detected_object in self.bboxes:
-            x = detected_object[0]
-            y = detected_object[1]
-            width = detected_object[2] - x
-            height = detected_object[3] - y
+            x = int(detected_object[0])
+            y = int(detected_object[1])
+            width = int(detected_object[2]) - x
+            height = int(detected_object[3]) - y
 
             score = detected_object[4]
-            label = self.labels[detected_object[5]]
+            label_idx = int(detected_object[5])
+            label = self.labels[label_idx]
 
+            box_color = self.colors[label_idx]
+            context.set_source_rgb(*box_color)
+           
             # draw rectangle
             context.rectangle(x, y, width, height)
             context.stroke_preserve()
@@ -272,24 +271,23 @@ class ObjectDetection:
                 pad.send_event(Gst.Event.new_tag(tags))
 
     def bboxes_iou(self, boxes1, boxes2):
-
-        boxes1 = np.array(boxes1)
-        boxes2 = np.array(boxes2)
+        # boxes1 = np.array(boxes1)
+        # boxes2 = np.array(boxes2)
 
         boxes1_area = (boxes1[..., 2] - boxes1[..., 0]) * (boxes1[..., 3] - boxes1[..., 1])
         boxes2_area = (boxes2[..., 2] - boxes2[..., 0]) * (boxes2[..., 3] - boxes2[..., 1])
 
-        left_up       = np.maximum(boxes1[..., :2], boxes2[..., :2])
-        right_down    = np.minimum(boxes1[..., 2:], boxes2[..., 2:])
+        left_up = np.maximum(boxes1[..., :2], boxes2[..., :2])
+        right_down = np.minimum(boxes1[..., 2:], boxes2[..., 2:])
 
         inter_section = np.maximum(right_down - left_up, 0.0)
-        inter_area    = inter_section[..., 0] * inter_section[..., 1]
-        union_area    = boxes1_area + boxes2_area - inter_area
-        ious          = np.maximum(1.0 * inter_area / union_area, np.finfo(np.float32).eps)
+        inter_area = inter_section[..., 0] * inter_section[..., 1]
+        union_area = boxes1_area + boxes2_area - inter_area
+        ious = np.maximum(1.0 * inter_area / union_area, np.finfo(np.float32).eps)
 
         return ious
 
-    def nms(self, bboxes, iou_threshold, sigma=0.3, method='nms'):
+    def nms(self, bboxes, sigma=0.3, method='nms'):
         """
         :param bboxes: (xmin, ymin, xmax, ymax, score, class)
 
@@ -314,7 +312,7 @@ class ObjectDetection:
                 assert method in ['nms', 'soft-nms']
 
                 if method == 'nms':
-                    iou_mask = iou > iou_threshold
+                    iou_mask = iou > self.iou_threshold
                     weight[iou_mask] = 0.0
 
                 if method == 'soft-nms':
@@ -326,46 +324,43 @@ class ObjectDetection:
 
         return best_bboxes
 
-    def postprocess_boxes(self, pred_bbox, org_img_shape, input_size, score_threshold):
-        valid_scale=[0, np.inf]
-        pred_bbox = np.array(pred_bbox)
+    def postprocess_boxes(self, pred_bbox):
+       #  pred_bbox = np.array(pred_bbox)
 
         pred_xywh = pred_bbox[:, 0:4]
         pred_conf = pred_bbox[:, 4]
         pred_prob = pred_bbox[:, 5:]
 
         # # (1) (x, y, w, h) --> (xmin, ymin, xmax, ymax)
-        pred_coor = np.concatenate([pred_xywh[:, :2] - pred_xywh[:, 2:] * 0.5,
-                                    pred_xywh[:, :2] + pred_xywh[:, 2:] * 0.5], axis=-1)
+        pred_coor = np.concatenate([pred_xywh[:, :2] - pred_xywh[:, 2:] * 0.5, pred_xywh[:, :2] + pred_xywh[:, 2:] * 0.5], axis=-1)
         
         # # (2) (xmin, ymin, xmax, ymax) -> (xmin_org, ymin_org, xmax_org, ymax_org)
-        org_h, org_w = org_img_shape
-        resize_ratio = min(input_size / org_w, input_size / org_h)
-
-        dw = (input_size - resize_ratio * org_w) / 2
-        dh = (input_size - resize_ratio * org_h) / 2
-
-        pred_coor[:, 0::2] = 1.0 * (pred_coor[:, 0::2] - dw) / resize_ratio
-        pred_coor[:, 1::2] = 1.0 * (pred_coor[:, 1::2] - dh) / resize_ratio
+        pred_coor[:, 0::2] = (pred_coor[:, 0::2] - self.dw) / self.resize_ratio
+        pred_coor[:, 1::2] = (pred_coor[:, 1::2] - self.dh) / self.resize_ratio
+        # pred_coor[:, 0::2] *= (self.video_width / self.model_width)
+        # pred_coor[:, 1::2] *= (self.video_height / self.model_height)
 
         # # (3) clip some boxes those are out of range
         pred_coor = np.concatenate([np.maximum(pred_coor[:, :2], [0, 0]),
-                                    np.minimum(pred_coor[:, 2:], [org_w - 1, org_h - 1])], axis=-1)
+                                    np.minimum(pred_coor[:, 2:], [self.video_width - 1, self.video_height - 1])], axis=-1)
         invalid_mask = np.logical_or((pred_coor[:, 0] > pred_coor[:, 2]), (pred_coor[:, 1] > pred_coor[:, 3]))
         pred_coor[invalid_mask] = 0
 
         # # (4) discard some invalid boxes
         bboxes_scale = np.sqrt(np.multiply.reduce(pred_coor[:, 2:4] - pred_coor[:, 0:2], axis=-1))
-        scale_mask = np.logical_and((valid_scale[0] < bboxes_scale), (bboxes_scale < valid_scale[1]))
+        scale_mask = np.logical_and((self.valid_scale[0] < bboxes_scale), (bboxes_scale < self.valid_scale[1]))
 
         # # (5) discard some boxes with low scores
         classes = np.argmax(pred_prob, axis=-1)
         scores = pred_conf * pred_prob[np.arange(len(pred_coor)), classes]
-        score_mask = scores > score_threshold
+        score_mask = scores >= self.score_threshold
+        
+        # apply masks
         mask = np.logical_and(scale_mask, score_mask)
         coors, scores, classes = pred_coor[mask], scores[mask], classes[mask]
 
-        return np.concatenate([coors, scores[:, np.newaxis], classes[:, np.newaxis]], axis=-1)
+        decoded_bbox = np.concatenate([coors, scores[:, np.newaxis], classes[:, np.newaxis]], axis=-1)
+        return decoded_bbox
 
 if __name__ == '__main__':
     od_instance = ObjectDetection()
