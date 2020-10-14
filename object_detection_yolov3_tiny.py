@@ -60,8 +60,8 @@ class ObjectDetection:
 
         self.od_framework= 'tensorflow'
         if len(sys.argv) == 1:
-            self.model_path = './models/yolov3/frozen_yolov3_tiny.pb'
-            self.label_path = './models/yolov3/coco.names'
+            self.model_path = './models/yolo_v3/frozen_yolov3_tiny.pb'
+            self.label_path = './models/yolo_v3/coco.names'
         else:
             self.model_path = sys.argv[1]
             self.label_path = sys.argv[2]
@@ -118,15 +118,14 @@ class ObjectDetection:
         # new tf pipeline (NHWC format)
         self.pipeline = Gst.parse_launch(
             # 'v4l2src name=cam_src ! videoscale ! videoconvert ! video/x-raw,width=%d,height=%d,format=RGB,framerate=30/1 ! tee name=t ' % (self.video_width, self.video_height) +
-            'filesrc location=%s ! decodebin ! videoscale ! videorate ! videoconvert ! timeoverlay ! video/x-raw,width=%d,height=%d,format=RGB,framerate=30/1 ! tee name=t ' % (self.file_path, self.video_width, self.video_height) +
-            't. ! queue ! videoconvert ! cairooverlay name=tensor_res ! ximagesink name=img_tensor '
-            't. ! queue leaky=2 max-size-buffers=1 ! videoscale ! video/x-raw,width=%d,height=%d,format=RGB ! ' % (self.model_width, self.model_height) + 
-                'tensor_converter ! tensor_transform mode=typecast option=float32 ! ' # input-dim=3:%d:%d:1 ! ' % (self.model_width, self.model_height)
-                # 'tensor_transform mode=arithmetic option=typecast:float32,add:-127.5,div:127.5 ! '
+            'filesrc location=%s ! decodebin ! videoscale ! videorate ! videoconvert !  '
+            'video/x-raw,width=%d,height=%d,format=RGB,framerate=30/1 ! tee name=t ' % (self.file_path, self.video_width, self.video_height) +
+            't. ! queue ! videoconvert ! timeoverlay ! cairooverlay name=tensor_res ! ximagesink name=img_tensor '
+            't. ! queue leaky=2 max-size-buffers=1 ! videoscale ! video/x-raw,width=%d,height=%d,format=RGB,framerate=30/1,pixel-aspect-ratio=1/1 ! ' % (self.model_width, self.model_height) + 
+                'tensor_converter input-dim=3:%d:%d:1 ! tensor_transform mode=typecast option=float32 ! ' % (self.model_width, self.model_height) +
                 'tensor_filter framework=%s model=%s ' % (self.od_framework, self.model_path) + 
                     'input=3:%d:%d:1 inputname=inputs inputtype=float32 ' % (self.model_width, self.model_height) + 
                     'output=85:2535:1 outputname=output_boxes outputtype=float32 ! '
-                    # 'output=85:507:1,85:2028:1 outputname=detector/yolo-v3-tiny/detect_1,detector/yolo-v3-tiny/detect_2 outputtype=float32,float32 ! '
                 'tensor_sink name=tensor_sink'
         )
         print('Pipeline checked!')
