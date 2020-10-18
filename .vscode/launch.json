@@ -10,7 +10,7 @@
             "request": "launch",
             "program": "${workspaceFolder}/object_detection_tf.py",
             "console": "integratedTerminal",
-            "args": [ "--use_web_cam","--model", "/usr/lib/nnstreamer/bin/tf_model/ssdlite_mobilenet_v2.pb", "--label", "/usr/lib/nnstreamer/bin/tf_model/coco_labels_list.txt"]
+            "args": [ "--model", "/usr/lib/nnstreamer/bin/tf_model/ssdlite_mobilenet_v2.pb", "--label", "/usr/lib/nnstreamer/bin/tf_model/coco_labels_list.txt"]
         }
     ]
 }

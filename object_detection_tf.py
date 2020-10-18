@@ -35,6 +35,8 @@ from math import exp
 import cairo
 import struct
 import time
+import pandas as pd
+from datetime import datetime
 
 gi.require_version('Gst', '1.0')
 gi.require_version('GstVideo', '1.0')
@@ -156,6 +158,10 @@ class ObjectDetection:
         fps_sink = self.pipeline.get_by_name('fps_sink')
         fps_sink.connect('fps-measurements', self.on_fps_message)
 
+        # make out file
+        self.csv_name = './output/'+datetime.now().strftime('%Y-%m-%d %H:%M:%S')+'.csv'
+        self.csv_data = []
+
         # run main loop
         self.loop.run()
 
@@ -164,9 +170,14 @@ class ObjectDetection:
         self.pipeline.set_state(Gst.State.NULL)
 
         bus.remove_signal_watch()
+        
+        # write output
+        self.csv = pd.DataFrame(self.csv_data, columns = ['fps', 'tensor_fps'])
+        self.csv.to_csv(self.csv_name, index=False, mode = 'w')
 
+        # calculate average
         interval = (self.times[-1] - self.times[0])
-        print(f"average tensor fps: {len(self.times)/interval}")
+        print(f"average tensor fps: {(len(self.times)-1)/interval}")
 
     def on_bus_message(self, bus, message):
         """Callback for message.
@@ -390,6 +401,7 @@ class ObjectDetection:
             label = 'fps=%f, drawfps=%f' % (fps, 1/interval)
             textoverlay = self.pipeline.get_by_name('text_overlay')
             textoverlay.set_property('text', label)
+            self.csv_data.append([fps, 1/interval])
 
 if __name__ == '__main__':
     od_instance = ObjectDetection()
