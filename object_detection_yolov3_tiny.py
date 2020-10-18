@@ -82,6 +82,7 @@ class ObjectDetection:
         self.resize_ratio = min(self.model_width / self.video_width, self.model_height / self.video_height)
         self.dw = (self.model_width - self.resize_ratio * self.video_width) / 2.
         self.dh = (self.model_height - self.resize_ratio * self.video_height) / 2.
+        print(self.resize_ratio, self.dw, self.dh)
 
         self.box_size = 4
         self.num_labels = 80
@@ -121,7 +122,7 @@ class ObjectDetection:
             'filesrc location=%s ! decodebin ! videoscale ! videorate ! videoconvert !  '
             'video/x-raw,width=%d,height=%d,format=RGB,framerate=30/1 ! tee name=t ' % (self.file_path, self.video_width, self.video_height) +
             't. ! queue ! videoconvert ! timeoverlay ! cairooverlay name=tensor_res ! ximagesink name=img_tensor '
-            't. ! queue leaky=2 max-size-buffers=1 ! videoscale ! video/x-raw,width=%d,height=%d,format=RGB,framerate=30/1,pixel-aspect-ratio=1/1 ! ' % (self.model_width, self.model_height) + 
+            't. ! queue leaky=2 max-size-buffers=1 ! videoscale add-borders=1 ! video/x-raw,width=%d,height=%d,format=RGB,framerate=30/1,pixel-aspect-ratio=1/1 ! ' % (self.model_width, self.model_height) + 
                 'tensor_converter input-dim=3:%d:%d:1 ! tensor_transform mode=typecast option=float32 ! ' % (self.model_width, self.model_height) +
                 'tensor_filter framework=%s model=%s ' % (self.od_framework, self.model_path) + 
                     'input=3:%d:%d:1 inputname=inputs inputtype=float32 ' % (self.model_width, self.model_height) + 
@@ -189,7 +190,7 @@ class ObjectDetection:
 
         if result:
             if mapinfo_content.size == expected_size*4:
-                content_arr = np.array(struct.unpack(str(expected_size)+data_type, mapinfo_content.data), dtype='float64')
+                content_arr = np.array(struct.unpack(str(expected_size)+data_type, mapinfo_content.data), dtype=np.float32)
                 buffer_content.unmap(mapinfo_content)
                 return content_arr
         else:
@@ -331,19 +332,19 @@ class ObjectDetection:
         pred_prob = pred_bbox[:, 5:]
 
         # # (1) (x, y, w, h) --> (xmin, ymin, xmax, ymax)
-        pred_coor = np.concatenate([pred_xywh[:, :2] - pred_xywh[:, 2:] * 0.5, pred_xywh[:, :2] + pred_xywh[:, 2:] * 0.5], axis=-1)
-        
+        # pred_coor = np.concatenate([pred_xywh[:, :2] - pred_xywh[:, 2:] * 0.5, pred_xywh[:, :2] + pred_xywh[:, 2:] * 0.5], axis=-1)
+        pred_coor = pred_xywh
+
         # # (2) (xmin, ymin, xmax, ymax) -> (xmin_org, ymin_org, xmax_org, ymax_org)
         pred_coor[:, 0::2] = (pred_coor[:, 0::2] - self.dw) / self.resize_ratio
         pred_coor[:, 1::2] = (pred_coor[:, 1::2] - self.dh) / self.resize_ratio
-        # pred_coor[:, 0::2] *= (self.video_width / self.model_width)
-        # pred_coor[:, 1::2] *= (self.video_height / self.model_height)
 
         # # (3) clip some boxes those are out of range
         pred_coor = np.concatenate([np.maximum(pred_coor[:, :2], [0, 0]),
                                     np.minimum(pred_coor[:, 2:], [self.video_width - 1, self.video_height - 1])], axis=-1)
         invalid_mask = np.logical_or((pred_coor[:, 0] > pred_coor[:, 2]), (pred_coor[:, 1] > pred_coor[:, 3]))
         pred_coor[invalid_mask] = 0
+        pred_coor = np.array(pred_coor, dtype=np.uint16)
 
         # # (4) discard some invalid boxes
         bboxes_scale = np.sqrt(np.multiply.reduce(pred_coor[:, 2:4] - pred_coor[:, 0:2], axis=-1))
