@@ -34,6 +34,9 @@ import gi
 from math import exp
 import cairo
 import struct
+import time
+import pandas as pd
+from datetime import datetime
 
 gi.require_version('Gst', '1.0')
 gi.require_version('GstVideo', '1.0')
@@ -56,7 +59,7 @@ class ObjectDetection:
         parser = ArgumentParser()
         parser.add_argument('--model', type=str, help='tf model path')
         parser.add_argument('--label', type=str, help='label path')
-        parser.add_argument('--use_web_cam', type=bool, help='set True to use web cam')
+        parser.add_argument('--use_web_cam', action='store_true', help='to use web cam')
         parser.add_argument('--file', type=str, help='file path')
 
         args = parser.parse_args()
@@ -75,6 +78,7 @@ class ObjectDetection:
         
         self.labels = []
         self.detected_objects = []
+        self.times = []
 
         # change to 640 * 480 if error occurs
         self.video_width = 1280
@@ -111,29 +115,23 @@ class ObjectDetection:
         # new tf pipeline
 
         if self.use_web_cam :
-            self.pipeline = Gst.parse_launch(
-                'v4l2src name=cam_src ! videoscale ! videoconvert ! video/x-raw,width=%d,height=%d,format=RGB,framerate=30/1 ! tee name=t ' % (self.video_width, self.video_height) +
-                't. ! queue ! videoconvert ! cairooverlay name=tensor_res ! ximagesink name=img_tensor '
-                't. ! queue leaky=2 max-size-buffers=4 ! videoscale ! tensor_converter ! '
-                    'tensor_filter framework=%s model=%s ' % (self.od_framework, self.od_model) +
-                        'input=3:%d:%d:1 inputname=image_tensor inputtype=uint8 ' % (self.video_width, self.video_height) +
-                        'output=1,%d:1,%d:1,%d:%d:1 ' % (self.detection_max, self.detection_max, self.box_size, self.detection_max) +
-                        'outputname=num_detections,detection_classes,detection_scores,detection_boxes '
-                        'outputtype=float32,float32,float32,float32 ! '
-                    'tensor_sink name=tensor_sink'
-            )
+            pipeline = 'v4l2src name=cam_src ! videoscale '
         else :
-            self.pipeline = Gst.parse_launch(
-            'filesrc location=%s ! decodebin ! videoscale ! videorate ! videoconvert ! timeoverlay ! video/x-raw,width=%d,height=%d,format=RGB,framerate=30/1 ! tee name=t ' % (self.file_path, self.video_width, self.video_height) +
-            't. ! queue ! videoconvert ! cairooverlay name=tensor_res ! ximagesink name=img_tensor '
-            't. ! queue leaky=2 max-size-buffers=4 ! videoscale ! tensor_converter ! '
-                'tensor_filter framework=%s model=%s ' % (self.od_framework, self.od_model) +
-                    'input=3:%d:%d:1 inputname=image_tensor inputtype=uint8 ' % (self.video_width, self.video_height) +
-                    'output=1,%d:1,%d:1,%d:%d:1 ' % (self.detection_max, self.detection_max, self.box_size, self.detection_max) +
-                    'outputname=num_detections,detection_classes,detection_scores,detection_boxes '
-                    'outputtype=float32,float32,float32,float32 ! '
-                'tensor_sink name=tensor_sink'
-            )
+            pipeline = f'filesrc location={self.file_path} ! decodebin ! videoscale ! videorate '
+
+        pipeline += f'''
+            ! videoconvert ! timeoverlay ! textoverlay name=text_overlay ! video/x-raw,width={self.video_width},height={self.video_height},format=RGB,framerate=10/1 ! tee name=t  
+            t. ! queue ! videoconvert ! cairooverlay name=tensor_res tensor_res. ! fpsdisplaysink name=fps_sink video-sink=ximagesink text-overlay=false signal-fps-measurements=true 
+            t. ! queue leaky=2 max-size-buffers=4 ! videoscale ! tensor_converter ! 
+                tensor_filter framework={self.od_framework} model={self.od_model} 
+                    input=3:{self.video_width}:{self.video_height}:1 inputname=image_tensor inputtype=uint8 
+                    output=1,{self.detection_max}:1,{self.detection_max}:1,{self.box_size}:{self.detection_max}:1  
+                    outputname=num_detections,detection_classes,detection_scores,detection_boxes 
+                    outputtype=float32,float32,float32,float32 ! 
+                    tensor_sink name=tensor_sink
+        '''
+
+        self.pipeline = Gst.parse_launch(pipeline)
 
         # bus and message callback
         bus = self.pipeline.get_bus()
@@ -156,6 +154,14 @@ class ObjectDetection:
         # set window title
         self.set_window_title('img_tensor', 'Object Detection with NNStreamer')
 
+        # mesuare fps
+        fps_sink = self.pipeline.get_by_name('fps_sink')
+        fps_sink.connect('fps-measurements', self.on_fps_message)
+
+        # make out file
+        self.csv_name = './output/'+datetime.now().strftime('%Y-%m-%d %H:%M:%S')+'.csv'
+        self.csv_data = []
+
         # run main loop
         self.loop.run()
 
@@ -164,6 +170,14 @@ class ObjectDetection:
         self.pipeline.set_state(Gst.State.NULL)
 
         bus.remove_signal_watch()
+        
+        # write output
+        self.csv = pd.DataFrame(self.csv_data, columns = ['fps', 'tensor_fps'])
+        self.csv.to_csv(self.csv_name, index=False, mode = 'w')
+
+        # calculate average
+        interval = (self.times[-1] - self.times[0])
+        print(f"average tensor fps: {(len(self.times)-1)/interval}")
 
     def on_bus_message(self, bus, message):
         """Callback for message.
@@ -222,6 +236,7 @@ class ObjectDetection:
                     to_delete[j] = True
 
         self.detected_objects.clear()
+
         for i in range(num_boxes):
             if not to_delete[i]:
                 self.detected_objects.append(detected_objs[i])
@@ -283,6 +298,7 @@ class ObjectDetection:
             detection_boxes = self.get_arr_from_buffer(buffer, 3, self.box_size * self.detection_max * 4, 'f')  # 400
         
             self.get_detected_objects(num_detections, detection_classes, detection_scores, detection_boxes)
+            self.times.append(time.time())
 
     # def prepare_overlay_cb(self, overlay, caps):
     #     # print(self, overlay, caps)
@@ -378,6 +394,14 @@ class ObjectDetection:
         except IndexError:
             label = ''
         return label
+
+    def on_fps_message(self, fpsdisplaysink, fps, droprate, avgfps):
+        if len(self.times) >= 2:
+            interval = self.times[-1] - self.times[-2]
+            label = 'fps=%f, drawfps=%f' % (fps, 1/interval)
+            textoverlay = self.pipeline.get_by_name('text_overlay')
+            textoverlay.set_property('text', label)
+            self.csv_data.append([fps, 1/interval])
 
 if __name__ == '__main__':
     od_instance = ObjectDetection()
