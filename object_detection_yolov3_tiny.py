@@ -35,6 +35,7 @@ import cairo
 import struct
 import numpy as np
 import colorsys
+import time
 
 gi.require_version('Gst', '1.0')
 gi.require_version('GstVideo', '1.0')
@@ -73,6 +74,7 @@ class ObjectDetection:
         
         self.labels = {}
         self.bboxes = []
+        self.times = []
 
         self.video_width = 1280
         self.video_height = 720
@@ -82,7 +84,6 @@ class ObjectDetection:
         self.resize_ratio = min(self.model_width / self.video_width, self.model_height / self.video_height)
         self.dw = (self.model_width - self.resize_ratio * self.video_width) / 2.
         self.dh = (self.model_height - self.resize_ratio * self.video_height) / 2.
-        print(self.resize_ratio, self.dw, self.dh)
 
         self.box_size = 4
         self.num_labels = 80
@@ -121,7 +122,7 @@ class ObjectDetection:
             # 'v4l2src name=cam_src ! videoscale ! videoconvert ! video/x-raw,width=%d,height=%d,format=RGB,framerate=30/1 ! tee name=t ' % (self.video_width, self.video_height) +
             'filesrc location=%s ! decodebin ! videoscale ! videorate ! videoconvert !  '
             'video/x-raw,width=%d,height=%d,format=RGB,framerate=30/1 ! tee name=t ' % (self.file_path, self.video_width, self.video_height) +
-            't. ! queue ! videoconvert ! timeoverlay ! cairooverlay name=tensor_res ! ximagesink name=img_tensor '
+            't. ! queue ! videoconvert ! timeoverlay ! textoverlay name=text_overlay ! cairooverlay name=tensor_res tensor_res. ! fpsdisplaysink name=fps_sink video-sink=ximagesink text-overlay=false signal-fps-measurements=true '
             't. ! queue leaky=2 max-size-buffers=1 ! videoscale add-borders=1 ! video/x-raw,width=%d,height=%d,format=RGB,framerate=30/1,pixel-aspect-ratio=1/1 ! ' % (self.model_width, self.model_height) + 
                 'tensor_converter input-dim=3:%d:%d:1 ! tensor_transform mode=typecast option=float32 ! ' % (self.model_width, self.model_height) +
                 'tensor_filter framework=%s model=%s ' % (self.od_framework, self.model_path) + 
@@ -148,6 +149,10 @@ class ObjectDetection:
         # set window title
         self.set_window_title('img_tensor', 'YOLOv3-tiny OD')
 
+        # mesuare fps
+        fps_sink = self.pipeline.get_by_name('fps_sink')
+        fps_sink.connect('fps-measurements', self.on_fps_message)
+
         # start pipeline
         self.pipeline.set_state(Gst.State.PLAYING)
         self.running = True
@@ -159,6 +164,10 @@ class ObjectDetection:
         self.running = False
         self.pipeline.set_state(Gst.State.NULL)
         bus.remove_signal_watch()
+
+        # calculate average
+        interval = (self.times[-1] - self.times[0])
+        print(f"average tensor fps: {(len(self.times)-1)/interval}")
 
     def on_bus_message(self, bus, message):
         """Callback for message.
@@ -214,6 +223,7 @@ class ObjectDetection:
         
         bboxes = self.postprocess_boxes(pred_bbox)
         self.bboxes = self.nms(bboxes, method='nms')
+        self.times.append(time.time())
         
     def draw_overlay_cb(self, overlay, context, timestamp, duration):      
         if not self.cairo_valid or not self.running:
@@ -222,7 +232,8 @@ class ObjectDetection:
         # draw_cnt = 0
         context.select_font_face('Sans', cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
         context.set_font_size(20)
-        context.set_line_width(2.5)
+        context.set_source_rgb(0.1, 1.0, 0.8)
+        context.set_line_width(2.0)
 
         # bboxes: [x_min, y_min, x_max, y_max, probability, cls_id] format coordinates.
         for detected_object in self.bboxes:
@@ -235,8 +246,8 @@ class ObjectDetection:
             label_idx = int(detected_object[5])
             label = self.labels[label_idx]
 
-            box_color = self.colors[label_idx]
-            context.set_source_rgb(*box_color)
+            # box_color = self.colors[label_idx]
+            # context.set_source_rgb(*box_color)
            
             # draw rectangle
             context.rectangle(x, y, width, height)
@@ -361,6 +372,14 @@ class ObjectDetection:
 
         decoded_bbox = np.concatenate([coors, scores[:, np.newaxis], classes[:, np.newaxis]], axis=-1)
         return decoded_bbox
+
+    def on_fps_message(self, fpsdisplaysink, fps, droprate, avgfps):
+        if len(self.times) >= 2:
+            interval = self.times[-1] - self.times[-2]
+            label = 'video-fps: %.2f  overlay-fps: %.2f' % (fps, 1/interval)
+            textoverlay = self.pipeline.get_by_name('text_overlay')
+            textoverlay.set_property('text', label)
+            # self.csv_data.append([fps, 1/interval])
 
 if __name__ == '__main__':
     od_instance = ObjectDetection()

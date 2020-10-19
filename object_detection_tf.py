@@ -118,9 +118,11 @@ class ObjectDetection:
             pipeline = 'v4l2src name=cam_src ! videoscale '
         else :
             pipeline = f'filesrc location={self.file_path} ! decodebin ! videoscale ! videorate '
+            self.video_width = 1920
+            self.video_height = 1080
 
         pipeline += f'''
-            ! videoconvert ! timeoverlay ! textoverlay name=text_overlay ! video/x-raw,width={self.video_width},height={self.video_height},format=RGB,framerate=10/1 ! tee name=t  
+            ! videoconvert ! timeoverlay ! textoverlay name=text_overlay ! video/x-raw,width={self.video_width},height={self.video_height},format=RGB,framerate=30/1 ! tee name=t  
             t. ! queue ! videoconvert ! cairooverlay name=tensor_res tensor_res. ! fpsdisplaysink name=fps_sink video-sink=ximagesink text-overlay=false signal-fps-measurements=true 
             t. ! queue leaky=2 max-size-buffers=4 ! videoscale ! tensor_converter ! 
                 tensor_filter framework={self.od_framework} model={self.od_model} 
@@ -128,7 +130,7 @@ class ObjectDetection:
                     output=1,{self.detection_max}:1,{self.detection_max}:1,{self.box_size}:{self.detection_max}:1  
                     outputname=num_detections,detection_classes,detection_scores,detection_boxes 
                     outputtype=float32,float32,float32,float32 ! 
-                    tensor_sink name=tensor_sink
+                tensor_sink name=tensor_sink
         '''
 
         self.pipeline = Gst.parse_launch(pipeline)
@@ -152,7 +154,7 @@ class ObjectDetection:
         self.running = True
 
         # set window title
-        self.set_window_title('img_tensor', 'Object Detection with NNStreamer')
+        self.set_window_title('img_tensor', 'Object Detection with SSDLite')
 
         # mesuare fps
         fps_sink = self.pipeline.get_by_name('fps_sink')
@@ -398,7 +400,7 @@ class ObjectDetection:
     def on_fps_message(self, fpsdisplaysink, fps, droprate, avgfps):
         if len(self.times) >= 2:
             interval = self.times[-1] - self.times[-2]
-            label = 'fps=%f, drawfps=%f' % (fps, 1/interval)
+            label = 'video-fps: %.2f  overlay-fps: %.2f' % (fps, 1/interval)
             textoverlay = self.pipeline.get_by_name('text_overlay')
             textoverlay.set_property('text', label)
             self.csv_data.append([fps, 1/interval])
