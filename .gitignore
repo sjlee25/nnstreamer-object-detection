@@ -190,3 +190,8 @@ dmypy.json
 .pytype/
 
 # End of https://www.toptal.com/developers/gitignore/api/code,linux,macos,python
+
+
+# output
+output/*
+!output
