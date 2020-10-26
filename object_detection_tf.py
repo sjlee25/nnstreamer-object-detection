@@ -321,7 +321,7 @@ class ObjectDetection:
             detection_boxes = self.get_arr_from_buffer(buffer, 3, self.box_size * self.detection_max * 4, 'f')  # 400
             
             success, self.frame = self.frame_by_bin.query_position(Gst.Format.DEFAULT)
-            
+
             self.get_detected_objects(num_detections, detection_classes, detection_scores, detection_boxes, str(self.frame).zfill(6))
             self.times.append(time.time())
 
@@ -428,6 +428,7 @@ class ObjectDetection:
             textoverlay = self.pipeline.get_by_name('text_overlay')
             textoverlay.set_property('text', label)
             self.csv_data.append([fps, 1/interval])
+            print(f'{fps} {1/interval}')
 
 if __name__ == '__main__':
     od_instance = ObjectDetection()
