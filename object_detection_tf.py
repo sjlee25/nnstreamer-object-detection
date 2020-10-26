@@ -61,6 +61,7 @@ class ObjectDetection:
         parser.add_argument('--label', type=str, help='label path')
         parser.add_argument('--use_web_cam', action='store_true', help='to use web cam')
         parser.add_argument('--file', type=str, help='file path')
+        parser.add_argument('--threshold_score', type=float,)
 
         args = parser.parse_args()
 
@@ -81,8 +82,8 @@ class ObjectDetection:
         self.times = []
 
         # change to 640 * 480 if error occurs
-        self.video_width = 1280
-        self.video_height = 720
+        self.video_width = 872
+        self.video_height = 480
 
         self.box_size = 4
         # self.label_size = 91
@@ -94,6 +95,7 @@ class ObjectDetection:
         # threshold values to drop detections
         self.threshold_iou = 0.5
         self.threshold_score = 0.3
+        self.threshold_score = args.threshold_score if args.threshold_score else self.threshold_score
 
         # cairo overlay state
         self.cairo_valid = True
@@ -117,13 +119,11 @@ class ObjectDetection:
         if self.use_web_cam :
             pipeline = 'v4l2src name=cam_src ! videoscale '
         else :
-            pipeline = f'filesrc location={self.file_path} ! decodebin ! videoscale ! videorate '
-            self.video_width = 1920
-            self.video_height = 1080
+            pipeline = f'filesrc location={self.file_path} ! decodebin name=decode decode. ! videoscale ! videorate '
 
         pipeline += f'''
-            ! videoconvert ! timeoverlay ! textoverlay name=text_overlay ! video/x-raw,width={self.video_width},height={self.video_height},format=RGB,framerate=30/1 ! tee name=t  
-            t. ! queue ! videoconvert ! cairooverlay name=tensor_res tensor_res. ! fpsdisplaysink name=fps_sink video-sink=ximagesink text-overlay=false signal-fps-measurements=true 
+            ! videoconvert ! timeoverlay ! textoverlay name=text_overlay ! video/x-raw,width={self.video_width},height={self.video_height},format=RGB,framerate=24/1 ! tee name=t  
+            t. ! queue ! videoconvert ! cairooverlay name=tensor_res tensor_res. ! identity name=frame_count ! fpsdisplaysink name=fps_sink video-sink=ximagesink text-overlay=false signal-fps-measurements=true 
             t. ! queue leaky=2 max-size-buffers=4 ! videoscale ! tensor_converter ! 
                 tensor_filter framework={self.od_framework} model={self.od_model} 
                     input=3:{self.video_width}:{self.video_height}:1 inputname=image_tensor inputtype=uint8 
@@ -149,6 +149,9 @@ class ObjectDetection:
         overlay.connect('draw', self.draw_overlay_cb)
         # overlay.connect('caps-changed', self.prepare_overlay_cb)
 
+        # frame count
+        self.frame_by_bin = self.pipeline.get_by_name('decode')
+
         # start pipeline
         self.pipeline.set_state(Gst.State.PLAYING)
         self.running = True
@@ -164,6 +167,21 @@ class ObjectDetection:
         self.csv_name = './output/'+datetime.now().strftime('%Y-%m-%d %H:%M:%S')+'.csv'
         self.csv_data = []
 
+        folder_path = './output/'
+        if('val' in self.file_path):
+            folder_path = folder_path + self.file_path.split('/')[7].split('.')[0]
+        elif('train' in self.file_path):
+            pass
+            # folder_path = folder_path + 'train/' + self.train_folder_path + '/' + self.file_paht.split('.')[0]
+        
+        if not os.path.exists(folder_path):
+            os.makedirs(folder_path)
+        listdir = os.listdir(folder_path)
+        listdir.remove('ground_true.csv')
+        number = len(listdir) if listdir != None else 0
+        self.detected_objects_csv_path = folder_path + '/' + str(number) + '.csv'
+        self.detected_objects_data = []
+
         # run main loop
         self.loop.run()
 
@@ -176,6 +194,8 @@ class ObjectDetection:
         # write output
         self.csv = pd.DataFrame(self.csv_data, columns = ['fps', 'tensor_fps'])
         self.csv.to_csv(self.csv_name, index=False, mode = 'w')
+        self.csv = pd.DataFrame(self.detected_objects_data)
+        self.csv.to_csv(self.detected_objects_csv_path, index=False, header=False, mode='w')
 
         # calculate average
         interval = (self.times[-1] - self.times[0])
@@ -226,7 +246,7 @@ class ObjectDetection:
 
     # pass only one box which has higher probability out of two
     # if their iou value is higher than the threshold
-    def nms(self, detected_objs):
+    def nms(self, detected_objs, frame):
         num_boxes = len(detected_objs)
         detected_objs = sorted(detected_objs, key=lambda obj: obj.score, reverse=True)
         to_delete = [False] * num_boxes
@@ -242,8 +262,9 @@ class ObjectDetection:
         for i in range(num_boxes):
             if not to_delete[i]:
                 self.detected_objects.append(detected_objs[i])
+                self.detected_objects_data.append([frame, detected_objs[i].x, detected_objs[i].y, detected_objs[i].width, detected_objs[i].height, detected_objs[i].class_id, detected_objs[i].score])
 
-    def get_detected_objects(self, num_detections, classes, scores, boxes):
+    def get_detected_objects(self, num_detections, classes, scores, boxes, frame):
         detected = []
         added_objects = 0
         idx = -1
@@ -269,7 +290,7 @@ class ObjectDetection:
             detected.append(DetectedObject(x, y, width, height, obj_class, obj_score))
             added_objects += 1
 
-        self.nms(detected)
+        self.nms(detected,frame)
 
     def get_arr_from_buffer(self, buffer, idx, expected_size, get_type):
         buffer_content = buffer.get_memory(idx)
@@ -298,8 +319,10 @@ class ObjectDetection:
             detection_classes = self.get_arr_from_buffer(buffer, 1, self.detection_max * 4, 'f')                             # 100
             detection_scores = self.get_arr_from_buffer(buffer, 2, self.detection_max * 4, 'f')                              # 100
             detection_boxes = self.get_arr_from_buffer(buffer, 3, self.box_size * self.detection_max * 4, 'f')  # 400
-        
-            self.get_detected_objects(num_detections, detection_classes, detection_scores, detection_boxes)
+            
+            success, self.frame = self.frame_by_bin.query_position(Gst.Format.DEFAULT)
+            
+            self.get_detected_objects(num_detections, detection_classes, detection_scores, detection_boxes, str(self.frame).zfill(6))
             self.times.append(time.time())
 
     # def prepare_overlay_cb(self, overlay, caps):
@@ -317,6 +340,7 @@ class ObjectDetection:
         context.set_source_rgb(0.1, 1.0, 0.8)
         context.set_line_width(2.0)
 
+        
         for detected_object in self.detected_objects:
             x = detected_object.x
             y = detected_object.y
