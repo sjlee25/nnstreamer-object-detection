@@ -123,7 +123,7 @@ class ObjectDetection:
 
         pipeline += f'''
             ! videoconvert ! timeoverlay ! textoverlay name=text_overlay ! video/x-raw,width={self.video_width},height={self.video_height},format=RGB,framerate=24/1 ! tee name=t  
-            t. ! queue ! videoconvert ! cairooverlay name=tensor_res tensor_res. ! identity name=frame_count ! fpsdisplaysink name=fps_sink video-sink=ximagesink text-overlay=false signal-fps-measurements=true 
+            t. ! queue ! videoconvert ! cairooverlay name=tensor_res tensor_res. ! fpsdisplaysink name=fps_sink video-sink=ximagesink text-overlay=false signal-fps-measurements=true 
             t. ! queue leaky=2 max-size-buffers=4 ! videoscale ! tensor_converter ! 
                 tensor_filter framework={self.od_framework} model={self.od_model} 
                     input=3:{self.video_width}:{self.video_height}:1 inputname=image_tensor inputtype=uint8 
@@ -150,7 +150,7 @@ class ObjectDetection:
         # overlay.connect('caps-changed', self.prepare_overlay_cb)
 
         # frame count
-        self.frame_by_bin = self.pipeline.get_by_name('decode')
+        self.frame_by_bin = self.pipeline.get_by_name('decode') ##
 
         # start pipeline
         self.pipeline.set_state(Gst.State.PLAYING)
@@ -270,6 +270,7 @@ class ObjectDetection:
         idx = -1
 
         while added_objects < num_detections:
+            added_objects += 1
             idx += 1
             obj_score = scores[idx]
             if obj_score < self.threshold_score: continue
@@ -288,7 +289,6 @@ class ObjectDetection:
             height = (y_max - y_min) * self.video_height
 
             detected.append(DetectedObject(x, y, width, height, obj_class, obj_score))
-            added_objects += 1
 
         self.nms(detected,frame)
 
