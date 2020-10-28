@@ -61,6 +61,7 @@ class ObjectDetection:
         parser.add_argument('--label', type=str, help='label path')
         parser.add_argument('--use_web_cam', action='store_true', help='to use web cam')
         parser.add_argument('--file', type=str, help='file path')
+        parser.add_argument('--train_folder', type=str, help='for train set')
         parser.add_argument('--threshold_score', type=float,)
 
         args = parser.parse_args()
@@ -71,6 +72,7 @@ class ObjectDetection:
         self.od_label = args.label if args.label else './models/ssdlite_v2/coco_labels_list.txt'
         self.use_web_cam = args.use_web_cam if args.use_web_cam else False
         self.file_path = args.file if args.file else './video/test_video_street.mp4'
+        self.train_folder_path = args.train_folder if args.train_folder else 'train'
         
 
         self.loop = None
@@ -168,16 +170,16 @@ class ObjectDetection:
         self.csv_data = []
 
         folder_path = './output/'
-        if('val' in self.file_path):
-            folder_path = folder_path + self.file_path.split('/')[7].split('.')[0]
-        elif('train' in self.file_path):
-            pass
-            # folder_path = folder_path + 'train/' + self.train_folder_path + '/' + self.file_paht.split('.')[0]
+        if('train' in self.file_path):
+            folder_path = folder_path + self.train_folder_path + '/' + self.file_path.split('/')[-1].split('.')[0]
+        else:
+            folder_path = folder_path + self.file_path.split('/')[-1].split('.')[0]
         
         if not os.path.exists(folder_path):
             os.makedirs(folder_path)
         listdir = os.listdir(folder_path)
-        listdir.remove('ground_true.csv')
+        if 'ground_true.csv' in listdir:
+            listdir.remove('ground_true.csv')
         number = len(listdir) if listdir != None else 0
         self.detected_objects_csv_path = folder_path + '/' + str(number) + '.csv'
         self.detected_objects_data = []
