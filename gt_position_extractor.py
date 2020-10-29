@@ -4,10 +4,21 @@ import os
 from argparse import ArgumentParser
 import xml.etree.ElementTree as ElementTree
 
+class GTObject:
+    def __init__(self, line):
+        data = line.split(',')
+        self.frame = int(data[0])
+        self.x = int(data[1])
+        self.y = int(data[2])
+        self.width = int(data[3])
+        self.height = int(data[4])
+        self.class_name = data[5]
+
 class GtPositionExtractor:
     def __init__(self, file_name, train_folder_path = None):
         self.file_name = file_name
         self.train_folder_path = train_folder_path
+        self.csv_file_path = f"./output/{self.file_name}/ground_truth.csv"
 
     def run(self):
         file_prefix = "./sample/ILSVRC2015/Annotations/VID/"
@@ -20,7 +31,7 @@ class GtPositionExtractor:
         
         if not os.path.exists(f'./output/{self.file_name}'):
             os.makedirs(f'./output/{self.file_name}')
-        self.csv_file_path = f"./output/{self.file_name}/ground_true.csv"
+        
         file_number = 0
         self.result:List[List] = []
         try :
@@ -32,7 +43,6 @@ class GtPositionExtractor:
             print(ex)
             csv = pd.DataFrame(self.result)
             csv.to_csv(self.csv_file_path, header=False, index=False, mode = 'w')
-            
 
     def xml_parser(self, file_name, folder_path):
         tree = ElementTree.parse(f'{folder_path}/{file_name}.xml')
@@ -48,8 +58,24 @@ class GtPositionExtractor:
             height = int(y_max) - int(y_min)
             self.result.append([file_name, x_min, y_min, width, height, class_id, 0])
 
-            
+    def get_gtobjects_from_csv(self):
+        gt_objects = {}
 
+        try:
+            with open(self.csv_file_path, 'r') as csv_file:
+                for line in csv_file.readlines():
+                    if line[-1] == '\n':
+                        line = line[:-1]
+                        gt_object = GTObject(line)
+                        frame = str(gt_object.frame)
+                        if not frame in gt_objects:
+                            gt_objects[frame] = []
+                        gt_objects[frame].append(gt_object)
+
+        except FileNotFoundError:
+            print(f''' [Error] Failed to read csv file: no such file named {self.csv_file_path}''')
+
+        return gt_objects
 
 if __name__ == "__main__":
     parser = ArgumentParser()

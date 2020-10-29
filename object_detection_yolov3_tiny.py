@@ -21,11 +21,12 @@ Run example :
 Before running this example, GST_PLUGIN_PATH should be updated for nnstreamer plugin.
 $ export GST_PLUGIN_PATH=$GST_PLUGIN_PATH:<nnstreamer plugin path>
     a) $ python3 object_detection_tf.py
-    b) $ python3 object_detection_tf.py [model_path] [label_path]
+    b) $ python3 object_detection_tf.py [od_model] [od_label]
 
 See https://lazka.github.io/pgi-docs/#Gst-1.0 for Gst API details.
 """
 
+from argparse import ArgumentParser
 import os
 import sys
 import logging
@@ -36,11 +37,15 @@ import struct
 import numpy as np
 import colorsys
 import time
+import pandas as pd
+from datetime import datetime
 
 gi.require_version('Gst', '1.0')
 gi.require_version('GstVideo', '1.0')
 gi.require_foreign('cairo')
 from gi.repository import Gst, GObject, GstVideo
+
+import gt_position_extractor
 
 class DetectedObject:
     def __init__(self, x, y, width, height, class_id, score):
@@ -55,18 +60,22 @@ class ObjectDetection:
     """Object Detection with NNStreamer."""
 
     def __init__(self, argv=None):
-        if len(sys.argv) != 1 and len(sys.argv) != 3:
-            print('usage: python3 object_detection_tf.py [model path] [label path]')
-            exit(1)
+        parser = ArgumentParser()
+        parser.add_argument('--model', type=str, help='tf model path')
+        parser.add_argument('--label', type=str, help='label path')
+        parser.add_argument('--use_web_cam', action='store_true', help='to use web cam')
+        parser.add_argument('--file', type=str, help='file path')
+        parser.add_argument('--train_folder', type=str, help='for train set')
+        parser.add_argument('--threshold_score', type=float,)
+
+        args = parser.parse_args()
 
         self.od_framework= 'tensorflow'
-        if len(sys.argv) == 1:
-            self.model_path = './models/yolo_v3/frozen_yolov3_tiny.pb'
-            self.label_path = './models/yolo_v3/coco.names'
-        else:
-            self.model_path = sys.argv[1]
-            self.label_path = sys.argv[2]
-        self.file_path = 'video/test_video_street.mp4'
+        self.od_model = args.model if args.model else './models/yolo_v3/frozen_yolov3_tiny.pb'
+        self.od_label = args.label if args.label else './models/yolo_v3/coco.names'
+        self.use_web_cam = args.use_web_cam if args.use_web_cam else False
+        self.file_path = args.file if args.file else './video/test_video_street.mp4'
+        self.train_folder_path = args.train_folder if args.train_folder else 'train'
 
         self.loop = None
         self.pipeline = None
@@ -76,8 +85,8 @@ class ObjectDetection:
         self.bboxes = []
         self.times = []
 
-        self.video_width = 1280
-        self.video_height = 720
+        self.video_width = 872
+        self.video_height = 480
         self.model_width = 416
         self.model_height = 416
 
@@ -89,15 +98,16 @@ class ObjectDetection:
         self.num_labels = 80
 
         # threshold values to drop detections
-        self.iou_threshold = 0.45
+        self.iou_threshold = 0.5
         self.score_threshold = 0.3
+        self.threshold_score = args.threshold_score if args.threshold_score else self.threshold_score
 
         # cairo overlay state
         self.cairo_valid = True
         self.valid_scale=[0, np.inf]
 
         # load labels
-        with open(self.label_path, 'r') as data:
+        with open(self.od_label, 'r') as data:
             for ID, name in enumerate(data):
                 self.labels[ID] = name.strip('\n')
 
@@ -117,20 +127,23 @@ class ObjectDetection:
         # main loop
         self.loop = GObject.MainLoop()
 
-        # new tf pipeline (NHWC format)
-        self.pipeline = Gst.parse_launch(
-            # 'v4l2src name=cam_src ! videoscale ! videoconvert ! video/x-raw,width=%d,height=%d,format=RGB,framerate=30/1 ! tee name=t ' % (self.video_width, self.video_height) +
-            'filesrc location=%s ! decodebin ! videoscale ! videorate ! videoconvert !  '
-            'video/x-raw,width=%d,height=%d,format=RGB,framerate=30/1 ! tee name=t ' % (self.file_path, self.video_width, self.video_height) +
+        # gstreamer pipeline
+        if self.use_web_cam :
+            pipeline = 'v4l2src name=cam_src ! videoscale '
+        else :
+            pipeline = f'filesrc location={self.file_path} ! decodebin name=decode decode. ! videoscale ! videorate '
+
+        self.pipeline = Gst.parse_launch(pipeline + 
+            '! videoconvert ! video/x-raw,width=%d,height=%d,format=RGB,framerate=24/1 ! tee name=t ' % (self.video_width, self.video_height) +
             't. ! queue ! videoconvert ! timeoverlay ! textoverlay name=text_overlay ! cairooverlay name=tensor_res tensor_res. ! fpsdisplaysink name=fps_sink video-sink=ximagesink text-overlay=false signal-fps-measurements=true '
-            't. ! queue leaky=2 max-size-buffers=1 ! videoscale add-borders=1 ! video/x-raw,width=%d,height=%d,format=RGB,framerate=30/1,pixel-aspect-ratio=1/1 ! ' % (self.model_width, self.model_height) + 
+            't. ! queue leaky=2 max-size-buffers=1 ! videoscale add-borders=1 ! video/x-raw,width=%d,height=%d,format=RGB,framerate=24/1,pixel-aspect-ratio=1/1 ! ' % (self.model_width, self.model_height) + 
                 'tensor_converter input-dim=3:%d:%d:1 ! tensor_transform mode=typecast option=float32 ! ' % (self.model_width, self.model_height) +
-                'tensor_filter framework=%s model=%s ' % (self.od_framework, self.model_path) + 
+                'tensor_filter framework=%s model=%s ' % (self.od_framework, self.od_model) + 
                     'input=3:%d:%d:1 inputname=inputs inputtype=float32 ' % (self.model_width, self.model_height) + 
                     'output=85:2535:1 outputname=output_boxes outputtype=float32 ! '
                 'tensor_sink name=tensor_sink'
         )
-        print('Pipeline checked!')
+        print('[Info] Pipeline checked!')
 
         # bus and message callback
         bus = self.pipeline.get_bus()
@@ -146,12 +159,43 @@ class ObjectDetection:
         overlay.connect('draw', self.draw_overlay_cb)
         # overlay.connect('caps-changed', self.prepare_overlay_cb)
 
+        # frame count
+        self.frame_by_bin = self.pipeline.get_by_name('decode')
+        self.frame = 0
+
         # set window title
         self.set_window_title('img_tensor', 'YOLOv3-tiny OD')
 
         # mesuare fps
         fps_sink = self.pipeline.get_by_name('fps_sink')
         fps_sink.connect('fps-measurements', self.on_fps_message)
+
+        # make out file
+        self.csv_name = './output/'+datetime.now().strftime('%Y-%m-%d %H:%M:%S')+'.csv'
+        self.csv_data = []
+
+        folder_path = './output/'
+        if('train' in self.file_path):
+            folder_path = folder_path + self.train_folder_path + '/' + self.file_path.split('/')[-1].split('.')[0]
+        else:
+            folder_path = folder_path + self.file_path.split('/')[-1].split('.')[0]
+        
+        if not os.path.exists(folder_path):
+            os.makedirs(folder_path)
+        listdir = os.listdir(folder_path)
+        if 'ground_truth.csv' in listdir:
+            listdir.remove('ground_truth.csv')
+        number = len(listdir) if listdir != None else 0
+        self.detected_objects_csv_path = folder_path + '/' + str(number) + '.csv'
+       
+        self.gt_objects = {}
+        self.draw_gt_box = True
+        if self.draw_gt_box:
+            file_path = self.file_path.split('/')[-1]
+            extension_idx = file_path.rfind('.')
+            file_path = file_path[:extension_idx]
+            self.gt_objects = gt_position_extractor.GtPositionExtractor(file_path).get_gtobjects_from_csv()
+        print(f'''[Info] Read ground truth boxes in {len(self.gt_objects)} frames''')
 
         # start pipeline
         self.pipeline.set_state(Gst.State.PLAYING)
@@ -164,6 +208,12 @@ class ObjectDetection:
         self.running = False
         self.pipeline.set_state(Gst.State.NULL)
         bus.remove_signal_watch()
+
+        # write output
+        self.csv = pd.DataFrame(self.csv_data, columns = ['fps', 'tensor_fps'])
+        self.csv.to_csv(self.csv_name, index=False, mode = 'w')
+        self.csv = pd.DataFrame(self.gt_objects)
+        self.csv.to_csv(self.detected_objects_csv_path, index=False, header=False, mode='w')
 
         # calculate average
         interval = (self.times[-1] - self.times[0])
@@ -220,6 +270,7 @@ class ObjectDetection:
         
         # output shape: [1][2535 = 3 * (13*13 + 26*26)][85 = 4(x_min, y_min, x_max, y_max) + 1(confidence) + 80(class scores)]
         pred_bbox = self.get_arr_from_buffer(buffer, 0, 2535*85, 'f').reshape((-1, 85))
+        success, self.frame = self.frame_by_bin.query_position(Gst.Format.DEFAULT)
         
         bboxes = self.postprocess_boxes(pred_bbox)
         self.bboxes = self.nms(bboxes, method='nms')
@@ -232,8 +283,8 @@ class ObjectDetection:
         # draw_cnt = 0
         context.select_font_face('Sans', cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
         context.set_font_size(20)
+        context.set_line_width(3.0)
         context.set_source_rgb(0.1, 1.0, 0.8)
-        context.set_line_width(2.0)
 
         # bboxes: [x_min, y_min, x_max, y_max, probability, cls_id] format coordinates.
         for detected_object in self.bboxes:
@@ -251,11 +302,36 @@ class ObjectDetection:
            
             # draw rectangle
             context.rectangle(x, y, width, height)
-            context.stroke_preserve()
+            context.stroke()
 
             # draw title
             context.move_to(x - 1, y - 8)
             context.show_text('%s  %.2f' % (label, score))
+
+            # draw_cnt += 1
+            # if draw_cnt >= self.max_object_detection:
+            #     break
+
+        if not self.draw_gt_box:
+            return
+
+        context.set_line_width(2.0)
+        context.set_source_rgb(1.0, 1.0, 0.)
+
+        for gt_object in self.gt_objects[str(self.frame)]:
+            x = gt_object.x
+            y = gt_object.y
+            width = gt_object.width
+            height = gt_object.height
+            # label = gt_object.class_name
+
+            # draw rectangle
+            context.rectangle(x, y, width, height)
+            context.stroke()
+
+            # draw title
+            # context.move_to(x - 1, y - 8)
+            # context.show_text('%s  %.2f' % (label))
 
             # draw_cnt += 1
             # if draw_cnt >= self.max_object_detection:

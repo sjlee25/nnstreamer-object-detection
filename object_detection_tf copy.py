@@ -63,7 +63,7 @@ class ObjectDetection:
         parser.add_argument('--use_web_cam', action='store_true', help='to use web cam')
         parser.add_argument('--file', type=str, help='file path')
         parser.add_argument('--threshold_score', type=float,)
-        parser.add_argument('--ground_true', type=str)
+        parser.add_argument('--ground_truth', type=str)
 
         args = parser.parse_args()
 
@@ -101,14 +101,14 @@ class ObjectDetection:
         # cairo overlay state
         self.cairo_valid = True
 
-        self.ground_true_data = []
+        self.ground_truth_data = []
 
-        csv_file_path = args.ground_true
+        csv_file_path = args.ground_truth
         csv_file = open(csv_file_path, 'r', encoding='utf-8')
         csv_reader = csv.reader(csv_file)
         for line in csv_reader:
             obj = (line[0], DetectedObject(float(line[1]), float(line[2]), float(line[3]), float(line[4]), line[5], float(line[6])))
-            self.ground_true_data.append(obj)
+            self.ground_truth_data.append(obj)
 
         if not self.model_init():
             raise Exception
@@ -187,7 +187,7 @@ class ObjectDetection:
         if not os.path.exists(folder_path):
             os.makedirs(folder_path)
         listdir = os.listdir(folder_path)
-        listdir.remove('ground_true.csv')
+        listdir.remove('ground_truth.csv')
         number = len(listdir) if listdir != None else 0
         self.detected_objects_csv_path = folder_path + '/' + str(number) + '.csv'
         self.detected_objects_data = []
@@ -371,7 +371,7 @@ class ObjectDetection:
         
         success, self.frame = self.frame_by_bin.query_position(Gst.Format.DEFAULT)
 
-        for gt_object in [data for data in self.ground_true_data if int(data[0])==self.frame]:
+        for gt_object in [data for data in self.ground_truth_data if int(data[0])==self.frame]:
             gt_box_object = gt_object[1]
             x = gt_box_object.x
             y = gt_box_object.y

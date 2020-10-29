@@ -43,6 +43,8 @@ gi.require_version('GstVideo', '1.0')
 gi.require_foreign('cairo')
 from gi.repository import Gst, GObject, GstVideo
 
+import gt_position_extractor
+
 class DetectedObject:
     def __init__(self, x, y, width, height, class_id, score):
         self.x = x
@@ -67,14 +69,12 @@ class ObjectDetection:
         args = parser.parse_args()
 
         self.od_framework= 'tensorflow'
-        
         self.od_model = args.model if args.model else './models/ssdlite_v2/ssdlite_mobilenet_v2.pb'
         self.od_label = args.label if args.label else './models/ssdlite_v2/coco_labels_list.txt'
         self.use_web_cam = args.use_web_cam if args.use_web_cam else False
         self.file_path = args.file if args.file else './video/test_video_street.mp4'
         self.train_folder_path = args.train_folder if args.train_folder else 'train'
         
-
         self.loop = None
         self.pipeline = None
         self.running = False
@@ -116,8 +116,7 @@ class ObjectDetection:
         # main loop
         self.loop = GObject.MainLoop()
 
-        # new tf pipeline
-
+        # gstreamer pipeline
         if self.use_web_cam :
             pipeline = 'v4l2src name=cam_src ! videoscale '
         else :
@@ -134,8 +133,8 @@ class ObjectDetection:
                     outputtype=float32,float32,float32,float32 ! 
                 tensor_sink name=tensor_sink
         '''
-
         self.pipeline = Gst.parse_launch(pipeline)
+        print('[Info] Pipeline checked!')
 
         # bus and message callback
         bus = self.pipeline.get_bus()
@@ -152,11 +151,8 @@ class ObjectDetection:
         # overlay.connect('caps-changed', self.prepare_overlay_cb)
 
         # frame count
-        self.frame_by_bin = self.pipeline.get_by_name('decode') ##
-
-        # start pipeline
-        self.pipeline.set_state(Gst.State.PLAYING)
-        self.running = True
+        self.frame_by_bin = self.pipeline.get_by_name('decode')
+        self.frame = 0
 
         # set window title
         self.set_window_title('img_tensor', 'Object Detection with SSDLite')
@@ -178,11 +174,23 @@ class ObjectDetection:
         if not os.path.exists(folder_path):
             os.makedirs(folder_path)
         listdir = os.listdir(folder_path)
-        if 'ground_true.csv' in listdir:
-            listdir.remove('ground_true.csv')
+        if 'ground_truth.csv' in listdir:
+            listdir.remove('ground_truth.csv')
         number = len(listdir) if listdir != None else 0
         self.detected_objects_csv_path = folder_path + '/' + str(number) + '.csv'
-        self.detected_objects_data = []
+       
+        self.gt_objects = {}
+        self.draw_gt_box = True
+        if self.draw_gt_box:
+            file_path = self.file_path.split('/')[-1]
+            extension_idx = file_path.rfind('.')
+            file_path = file_path[:extension_idx]
+            self.gt_objects = gt_position_extractor.GtPositionExtractor(file_path).get_gtobjects_from_csv()
+        print(f'''[Info] Read ground truth boxes in {len(self.gt_objects)} frames''')
+
+        # start pipeline
+        self.pipeline.set_state(Gst.State.PLAYING)
+        self.running = True
 
         # run main loop
         self.loop.run()
@@ -196,12 +204,12 @@ class ObjectDetection:
         # write output
         self.csv = pd.DataFrame(self.csv_data, columns = ['fps', 'tensor_fps'])
         self.csv.to_csv(self.csv_name, index=False, mode = 'w')
-        self.csv = pd.DataFrame(self.detected_objects_data)
+        self.csv = pd.DataFrame(self.gt_objects)
         self.csv.to_csv(self.detected_objects_csv_path, index=False, header=False, mode='w')
 
         # calculate average
         interval = (self.times[-1] - self.times[0])
-        print(f"average tensor fps: {(len(self.times)-1)/interval}")
+        print(f"Average overlay-fps: {(len(self.times)-1)/interval}")
 
     def on_bus_message(self, bus, message):
         """Callback for message.
@@ -264,8 +272,7 @@ class ObjectDetection:
         for i in range(num_boxes):
             if not to_delete[i]:
                 self.detected_objects.append(detected_objs[i])
-                self.detected_objects_data.append([frame, detected_objs[i].x, detected_objs[i].y, detected_objs[i].width, detected_objs[i].height, detected_objs[i].class_id, detected_objs[i].score])
-
+        
     def get_detected_objects(self, num_detections, classes, scores, boxes, frame):
         detected = []
         added_objects = 0
@@ -339,10 +346,9 @@ class ObjectDetection:
         # draw_cnt = 0
         context.select_font_face('Sans', cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
         context.set_font_size(20)
+        context.set_line_width(3.0)
         context.set_source_rgb(0.1, 1.0, 0.8)
-        context.set_line_width(2.0)
 
-        
         for detected_object in self.detected_objects:
             x = detected_object.x
             y = detected_object.y
@@ -354,11 +360,36 @@ class ObjectDetection:
 
             # draw rectangle
             context.rectangle(x, y, width, height)
-            context.stroke_preserve()
+            context.stroke()
 
             # draw title
             context.move_to(x - 1, y - 8)
             context.show_text('%s  %.2f' % (label, score))
+
+            # draw_cnt += 1
+            # if draw_cnt >= self.max_object_detection:
+            #     break
+
+        if not self.draw_gt_box:
+            return
+
+        context.set_line_width(2.0)
+        context.set_source_rgb(1.0, 1.0, 0.)
+
+        for gt_object in self.gt_objects[str(self.frame)]:
+            x = gt_object.x
+            y = gt_object.y
+            width = gt_object.width
+            height = gt_object.height
+            # label = gt_object.class_name
+
+            # draw rectangle
+            context.rectangle(x, y, width, height)
+            context.stroke()
+
+            # draw title
+            # context.move_to(x - 1, y - 8)
+            # context.show_text('%s  %.2f' % (label))
 
             # draw_cnt += 1
             # if draw_cnt >= self.max_object_detection:
@@ -430,7 +461,7 @@ class ObjectDetection:
             textoverlay = self.pipeline.get_by_name('text_overlay')
             textoverlay.set_property('text', label)
             self.csv_data.append([fps, 1/interval])
-            print(f'{fps} {1/interval}')
+            # print(f'{fps} {1/interval}')
 
 if __name__ == '__main__':
     od_instance = ObjectDetection()
