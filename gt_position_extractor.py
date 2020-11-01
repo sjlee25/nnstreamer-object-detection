@@ -18,7 +18,7 @@ class GtPositionExtractor:
     def __init__(self, file_name, train_folder_path = None):
         self.file_name = file_name
         self.train_folder_path = train_folder_path
-        self.csv_file_path = f"./output/{self.file_name}/ground_truth.csv"
+        self.csv_file_path = f"./output/{self.file_name}/ground_truth/ground_truth.csv"
 
     def run(self):
         file_prefix = "./sample/ILSVRC2015/Annotations/VID/"
@@ -29,8 +29,8 @@ class GtPositionExtractor:
         elif('train' in self.file_name):
             folder_path = folder_path + 'train/' + self.train_folder_path + '/' + self.file_name
         
-        if not os.path.exists(f'./output/{self.file_name}'):
-            os.makedirs(f'./output/{self.file_name}')
+        if not os.path.exists(f'./output/{self.file_name}/ground_truth'):
+            os.makedirs(f'./output/{self.file_name}/ground_truth')
         
         file_number = 0
         self.result:List[List] = []

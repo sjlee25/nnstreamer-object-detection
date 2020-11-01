@@ -162,9 +162,6 @@ class ObjectDetection:
         fps_sink.connect('fps-measurements', self.on_fps_message)
 
         # make out file
-        self.csv_name = './output/'+datetime.now().strftime('%Y-%m-%d %H:%M:%S')+'.csv'
-        self.csv_data = []
-
         folder_path = './output/'
         if('train' in self.file_path):
             folder_path = folder_path + self.train_folder_path + '/' + self.file_path.split('/')[-1].split('.')[0]
@@ -173,14 +170,39 @@ class ObjectDetection:
         
         if not os.path.exists(folder_path):
             os.makedirs(folder_path)
-        listdir = os.listdir(folder_path)
-        if 'ground_truth.csv' in listdir:
-            listdir.remove('ground_truth.csv')
-        number = len(listdir) if listdir != None else 0
-        self.detected_objects_csv_path = folder_path + '/' + str(number) + '.csv'
+        
+        detected_folder_path = folder_path + '/detections'
+        if not os.path.exists(detected_folder_path):
+            os.makedirs(detected_folder_path)
+
+        fps_folder_path = folder_path + '/fps'
+        if not os.path.exists(fps_folder_path):
+            os.makedirs(fps_folder_path)
+                
+        detected_objects_csv_path = detected_folder_path + f'/{self.threshold_score}.csv'
+        while True:
+            i = 0
+            if not os.path.isfile(detected_objects_csv_path):
+                break
+            else:
+                i += 1
+                detected_objects_csv_path = detected_objects_csv_path.replace('.csv', f'_{i}.csv')
+
+        fps_file_path = fps_folder_path + f'/{self.threshold_score}.csv'
+        while True:
+            i = 0
+            if not os.path.isfile(fps_file_path):
+                break
+            else:
+                i += 1
+                fps_file_path = fps_file_path.replace('.csv', f'_{i}.csv')
+
+        self.detected_objects_data = []
+        self.fps_data = []
        
         self.gt_objects = {}
-        self.draw_gt_box = True
+        # self.draw_gt_box = True
+        self.draw_gt_box = False
         if self.draw_gt_box:
             file_path = self.file_path.split('/')[-1]
             extension_idx = file_path.rfind('.')
@@ -202,10 +224,10 @@ class ObjectDetection:
         bus.remove_signal_watch()
         
         # write output
-        self.csv = pd.DataFrame(self.csv_data, columns = ['fps', 'tensor_fps'])
-        self.csv.to_csv(self.csv_name, index=False, mode = 'w')
-        self.csv = pd.DataFrame(self.gt_objects)
-        self.csv.to_csv(self.detected_objects_csv_path, index=False, header=False, mode='w')
+        self.csv = pd.DataFrame(self.fps_data, columns = ['fps', 'tensor_fps'])
+        self.csv.to_csv(fps_file_path, index=False, mode = 'w')
+        self.csv = pd.DataFrame(self.detected_objects_data)
+        self.csv.to_csv(detected_objects_csv_path, index=False, header=False, mode='w')
 
         # calculate average
         interval = (self.times[-1] - self.times[0])
@@ -272,6 +294,8 @@ class ObjectDetection:
         for i in range(num_boxes):
             if not to_delete[i]:
                 self.detected_objects.append(detected_objs[i])
+                self.detected_objects_data.append([frame, detected_objs[i].x, detected_objs[i].y, detected_objs[i].width, detected_objs[i].height, detected_objs[i].class_id, detected_objs[i].score])
+
         
     def get_detected_objects(self, num_detections, classes, scores, boxes, frame):
         detected = []
@@ -460,7 +484,7 @@ class ObjectDetection:
             label = 'video-fps: %.2f  overlay-fps: %.2f' % (fps, 1/interval)
             textoverlay = self.pipeline.get_by_name('text_overlay')
             textoverlay.set_property('text', label)
-            self.csv_data.append([fps, 1/interval])
+            self.fps_data.append([fps, 1/interval])
             # print(f'{fps} {1/interval}')
 
 if __name__ == '__main__':
