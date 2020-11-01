@@ -44,6 +44,7 @@ gi.require_foreign('cairo')
 from gi.repository import Gst, GObject, GstVideo
 
 import gt_position_extractor
+import label_mapper
 
 class DetectedObject:
     def __init__(self, x, y, width, height, class_id, score):
@@ -180,22 +181,40 @@ class ObjectDetection:
             os.makedirs(fps_folder_path)
                 
         detected_objects_csv_path = detected_folder_path + f'/{self.threshold_score}.csv'
+
+        i = 0
         while True:
-            i = 0
             if not os.path.isfile(detected_objects_csv_path):
                 break
             else:
                 i += 1
-                detected_objects_csv_path = detected_objects_csv_path.replace('.csv', f'_{i}.csv')
+                if i == 1:
+                    detected_objects_csv_path = detected_objects_csv_path.replace('.csv', '_1.csv')
+                    if not os.path.isfile(detected_objects_csv_path):
+                        break
+                else:
+                    if f'_{i-1}.csv' in detected_objects_csv_path:
+                        detected_objects_csv_path = detected_objects_csv_path.replace(f'_{i-1}.csv', f'_{i}.csv')
+                    else:
+                        detected_objects_csv_path = detected_objects_csv_path.replace('.csv', f'_{i}.csv')
 
         fps_file_path = fps_folder_path + f'/{self.threshold_score}.csv'
+
+        i = 0
         while True:
-            i = 0
             if not os.path.isfile(fps_file_path):
                 break
             else:
                 i += 1
-                fps_file_path = fps_file_path.replace('.csv', f'_{i}.csv')
+                if i == 1:
+                    fps_file_path = fps_file_path.replace('.csv', '_1.csv')
+                    if not os.path.isfile(fps_file_path):
+                        break
+                else:
+                    if f'_{i-1}.csv' in fps_file_path:
+                        fps_file_path = fps_file_path.replace(f'_{i-1}.csv', f'_{i}.csv')
+                    else:
+                        fps_file_path = fps_file_path.replace('.csv', f'_{i}.csv')
 
         self.detected_objects_data = []
         self.fps_data = []
@@ -294,7 +313,7 @@ class ObjectDetection:
         for i in range(num_boxes):
             if not to_delete[i]:
                 self.detected_objects.append(detected_objs[i])
-                self.detected_objects_data.append([frame, detected_objs[i].x, detected_objs[i].y, detected_objs[i].width, detected_objs[i].height, detected_objs[i].class_id, detected_objs[i].score])
+                self.detected_objects_data.append([frame, detected_objs[i].x, detected_objs[i].y, detected_objs[i].width, detected_objs[i].height, self.mapper.get_data_set_label(detected_objs[i].class_id), detected_objs[i].score])
 
         
     def get_detected_objects(self, num_detections, classes, scores, boxes, frame):
@@ -453,15 +472,18 @@ class ObjectDetection:
 
         # load labels
         # self.od_label = os.path.join(model_folder, od_label)
-        try:
-            with open(self.od_label, 'r') as label_file:
-                for line in label_file.readlines():
-                    if line[-1] == '\n':
-                        line = line[:-1]
-                    self.labels.append(line)
-        except FileNotFoundError:
-            logging.error('cannot find tflite label [%s]', self.od_label)
-            return False
+
+        self.mapper = label_mapper.LabelMapper(self.od_label)
+        self.labels = self.mapper.labels
+        # try:
+        #     with open(self.od_label, 'r') as label_file:
+        #         for line in label_file.readlines():
+        #             if line[-1] == '\n':
+        #                 line = line[:-1]
+        #             self.labels.append(line)
+        # except FileNotFoundError:
+        #     logging.error('cannot find tflite label [%s]', self.od_label)
+        #     return False
         logging.info('finished to load labels, total [%d]', len(self.labels))
 
         return True

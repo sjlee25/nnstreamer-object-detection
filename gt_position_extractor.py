@@ -18,34 +18,36 @@ class GtPositionExtractor:
     def __init__(self, file_name, train_folder_path = None):
         self.file_name = file_name
         self.train_folder_path = train_folder_path
-        self.csv_file_path = f"./output/{self.file_name}/ground_truth/ground_truth.csv"
+        file_prefix = "./sample/ILSVRC2015/Annotations/VID/"
+        self.folder_path: str = file_prefix
+        csv_folder_path = './output/'
+
+        if('val' in self.file_name):
+            self.folder_path = self.folder_path + 'val/' + self.file_name
+            csv_folder_path += self.file_name
+        elif('train' in self.file_name):
+            self.folder_path = self.folder_path + 'train/' + self.train_folder_path + '/' + self.file_name
+            csv_folder_path += self.train_folder_path + '/' + self.file_name
+        csv_folder_path += '/ground_truth'
+        if not os.path.exists(csv_folder_path):
+            os.makedirs(csv_folder_path)
+        self.csv_file_path = csv_folder_path + '/ground_truth.csv'
 
     def run(self):
-        file_prefix = "./sample/ILSVRC2015/Annotations/VID/"
-        folder_path: str = file_prefix
-        
-        if('val' in self.file_name):
-            folder_path = folder_path + 'val/' + self.file_name
-        elif('train' in self.file_name):
-            folder_path = folder_path + 'train/' + self.train_folder_path + '/' + self.file_name
-        
-        if not os.path.exists(f'./output/{self.file_name}/ground_truth'):
-            os.makedirs(f'./output/{self.file_name}/ground_truth')
-        
         file_number = 0
         self.result:List[List] = []
         try :
             while True:
                 file_name = str(file_number).zfill(6)
-                self.xml_parser(file_name, folder_path)
+                self.xml_parser(file_name)
                 file_number += 1
         except Exception as ex:
             print(ex)
             csv = pd.DataFrame(self.result)
             csv.to_csv(self.csv_file_path, header=False, index=False, mode = 'w')
 
-    def xml_parser(self, file_name, folder_path):
-        tree = ElementTree.parse(f'{folder_path}/{file_name}.xml')
+    def xml_parser(self, file_name):
+        tree = ElementTree.parse(f'{self.folder_path}/{file_name}.xml')
         obj_list = tree.findall('object')
         for obj in obj_list:
             class_id = obj.find('name').text
