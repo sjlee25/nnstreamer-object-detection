@@ -15,10 +15,9 @@ class GTObject:
         self.class_name = data[5]
 
 class GtPositionExtractor:
-    def __init__(self, file_name, train_folder_path = None):
+    def __init__(self, file_name, train_folder_path = None, file_prefix = "./sample/ILSVRC2015/Annotations/VID/"):
         self.file_name = file_name
         self.train_folder_path = train_folder_path
-        file_prefix = "./sample/ILSVRC2015/Annotations/VID/"
         self.folder_path: str = file_prefix
         csv_folder_path = './output/'
 
