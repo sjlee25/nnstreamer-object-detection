@@ -3,6 +3,7 @@ import csv
 from argparse import ArgumentParser
 import os
 import pandas as pd
+from copy import deepcopy
 
 class Accuracy:
     def __init__(self, precision, recall):
@@ -36,18 +37,19 @@ class DetectedObject:
 
 class ApCalculator:
     def __init__(self, accuracy_list):
-        self.accuray_list = accuracy_list
+        self.accuracy_list = accuracy_list
 
     def run(self):
         class_id_list:List[str] = []
-        for accuracy in self.accuray_list:
+        for accuracy in self.accuracy_list:
             for key in accuracy:
                 if key not in class_id_list:
                     class_id_list.append(key)
         
         result_data = []
+        print('class_id_list:', class_id_list)
         for class_id in class_id_list:
-            print(f'calculating {class_id}...')
+            print(f'[Info] Calculating {class_id}...')
             ap = self.calculate(class_id)
             result_data.append([class_id, ap])
         
@@ -86,19 +88,19 @@ class ApCalculator:
         csv.to_csv(result_file_path, index=False, header=False, mode='w')
                    
     def calculate(self, class_id):
-        accuracy_list = [obj[class_id] for obj in self.accuray_list]
+        accuracy_list = [obj[class_id] for obj in self.accuracy_list if class_id in obj.keys()]
         accuracy_list = sorted(accuracy_list, key=lambda x: x.recall, reverse=True)
-        max_accuray_list = [0.0]*11
+        max_accuracy_list = [0.0]*11
         for accuracy in accuracy_list:
             for i in range(int(accuracy.recall*10)+1):
-                max_accuray_list[i] = max(accuracy.precision, max_accuray_list[i])
+                max_accuracy_list[i] = max(accuracy.precision, max_accuracy_list[i])
         
         # https://seongkyun.github.io/study/2019/01/15/map/
 
         for i in range(int(accuracy_list[-1].recall*10)):
-            max_accuray_list[i] = 1.0
+            max_accuracy_list[i] = 1.0
 
-        return sum(max_accuray_list)/11
+        return sum(max_accuracy_list)/11
 
 
 
@@ -179,21 +181,34 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     accuracy_list = []
-    for video_file_name in os.listdir(args.folder_path):
+    video_file_lists = os.listdir(args.folder_path)
+    num_videos = len(video_file_lists)
+    video_cnt = 0
+
+    print('[Info] Calculating precisions and recalls')
+    for video_file_name in video_file_lists:
+        video_cnt += 1
         video_folder_name = '.'.join(video_file_name.split('.')[:-1])
-        print(f'calculating {video_folder_name}...')
+        print(f'[Info] {video_folder_name}.mp4 ({video_cnt}/{num_videos})')
         folder_path = f'./output/{video_folder_name}/detections'
 
         true_object_file = f'./output/{video_folder_name}/ground_truth/ground_truth.csv'
         true_object_list = DetectedObject.csv_to_detected_object_list(true_object_file)
 
-        for detected_file in os.listdir(folder_path):
-            detected_object_list = DetectedObject.csv_to_detected_object_list(f'{folder_path}/{detected_file}')
+        detected_file = os.listdir(folder_path)[0]
+        detected_object_list_org = DetectedObject.csv_to_detected_object_list(f'{folder_path}/{detected_file}')
+
+        for threshold_score in [0.1 + i*0.09 for i in range(0, 10)]:
+            detected_object_list = []
+            for obj in detected_object_list_org:
+                if float(obj.score) > threshold_score:
+                    detected_object_list.append(obj)
+
             cal = AccuracyCalculator(true_object_list, detected_object_list)
             accuracy = cal.run()
             accuracy_list.append(accuracy)
 
     calculator = ApCalculator(accuracy_list)
     print('==========================================')
-    print('calculating...')
+    print('\n[Info] Calculating mAP')
     calculator.run()

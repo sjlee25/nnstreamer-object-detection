@@ -37,6 +37,7 @@ import struct
 import time
 import pandas as pd
 from datetime import datetime
+import cv2 # for temporarily get video size
 
 gi.require_version('Gst', '1.0')
 gi.require_version('GstVideo', '1.0')
@@ -84,9 +85,9 @@ class ObjectDetection:
         self.detected_objects = []
         self.times = []
 
-        # change to 640 * 480 if error occurs
-        self.video_width = 872
-        self.video_height = 480
+        vid = cv2.VideoCapture(self.file_path)
+        self.video_width = int(vid.get(cv2.CAP_PROP_FRAME_WIDTH))
+        self.video_height = int(vid.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
         self.box_size = 4
         # self.label_size = 91
@@ -98,7 +99,7 @@ class ObjectDetection:
         # threshold values to drop detections
         self.threshold_iou = 0.5
         self.threshold_score = 0.3
-        self.threshold_score = args.threshold_score if args.threshold_score else self.threshold_score
+        # self.threshold_score = args.threshold_score if args.threshold_score else self.threshold_score
 
         # cairo overlay state
         self.cairo_valid = True
@@ -124,7 +125,7 @@ class ObjectDetection:
             pipeline = f'filesrc location={self.file_path} ! decodebin name=decode decode. ! videoscale ! videorate '
 
         pipeline += f'''
-            ! videoconvert ! timeoverlay ! textoverlay name=text_overlay ! video/x-raw,width={self.video_width},height={self.video_height},format=RGB,framerate=24/1 ! tee name=t  
+            ! videoconvert ! timeoverlay ! textoverlay name=text_overlay ! video/x-raw,width={self.video_width},height={self.video_height},format=RGB ! tee name=t  
             t. ! queue ! videoconvert ! cairooverlay name=tensor_res tensor_res. ! fpsdisplaysink name=fps_sink video-sink=ximagesink text-overlay=false signal-fps-measurements=true 
             t. ! queue leaky=2 max-size-buffers=4 ! videoscale ! tensor_converter ! 
                 tensor_filter framework={self.od_framework} model={self.od_model} 
@@ -180,7 +181,7 @@ class ObjectDetection:
         if not os.path.exists(fps_folder_path):
             os.makedirs(fps_folder_path)
                 
-        detected_objects_csv_path = detected_folder_path + f'/{self.threshold_score}.csv'
+        detected_objects_csv_path = detected_folder_path + f'/all_detections.csv'
 
         i = 0
         while True:
@@ -227,7 +228,7 @@ class ObjectDetection:
             extension_idx = file_path.rfind('.')
             file_path = file_path[:extension_idx]
             self.gt_objects = gt_position_extractor.GtPositionExtractor(file_path).get_gtobjects_from_csv()
-        print(f'''[Info] Read ground truth boxes in {len(self.gt_objects)} frames''')
+            print(f'''[Info] Read ground truth boxes in {len(self.gt_objects)} frames''')
 
         # start pipeline
         self.pipeline.set_state(Gst.State.PLAYING)
@@ -239,7 +240,6 @@ class ObjectDetection:
         # quit when received eos or error message
         self.running = False
         self.pipeline.set_state(Gst.State.NULL)
-
         bus.remove_signal_watch()
         
         # write output
@@ -312,9 +312,11 @@ class ObjectDetection:
 
         for i in range(num_boxes):
             if not to_delete[i]:
-                self.detected_objects.append(detected_objs[i])
-                self.detected_objects_data.append([frame, detected_objs[i].x, detected_objs[i].y, detected_objs[i].width, detected_objs[i].height, self.mapper.get_data_set_label(detected_objs[i].class_id), detected_objs[i].score])
-
+                obj_score = detected_objs[i].score
+                if obj_score > 0.:
+                    self.detected_objects_data.append([frame, detected_objs[i].x, detected_objs[i].y, detected_objs[i].width, detected_objs[i].height, self.mapper.get_data_set_label(detected_objs[i].class_id), detected_objs[i].score])
+                if obj_score >= self.threshold_score:
+                    self.detected_objects.append(detected_objs[i])
         
     def get_detected_objects(self, num_detections, classes, scores, boxes, frame):
         detected = []
@@ -325,7 +327,6 @@ class ObjectDetection:
             added_objects += 1
             idx += 1
             obj_score = scores[idx]
-            if obj_score < self.threshold_score: continue
             obj_class = int(classes[idx])
 
             # [y_min, x_min, y_max, x_max]
@@ -389,7 +390,7 @@ class ObjectDetection:
         # draw_cnt = 0
         context.select_font_face('Sans', cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
         context.set_font_size(20)
-        context.set_line_width(3.0)
+        context.set_line_width(2.0)
         context.set_source_rgb(0.1, 1.0, 0.8)
 
         for detected_object in self.detected_objects:

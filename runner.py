@@ -12,13 +12,34 @@ parser.add_argument('--xml_file_folder', type=str, help='enter xml file folder p
 args = parser.parse_args()
 folder_path = args.folder
 file_prefix = args.xml_file_folder
+if file_prefix[-1] != '/': file_prefix += '/'
 python_file = args.python_file_path
-for file_name in os.listdir(folder_path):
-    if file_name.split('.')[-1] == 'mp4':
-        file_path = f'{folder_path}/{file_name}'
-        for i in range(0,10):
-            threshold_score = 0.1 + i*0.09
-            os.system(f'python3 {python_file} --file {file_path} --threshold_score {threshold_score}')
-        GtPositionExtractor('.'.join(file_name.split('.')[:-1]), file_prefix=file_prefix)
 
+video_file_lists = os.listdir(folder_path)
+num_videos = len(video_file_lists)
+video_cnt = 0
+
+for file_name in video_file_lists:
+    extension_idx = file_name.rfind('.')
+    video_name = file_name[:extension_idx]
+    extension = file_name[extension_idx+1:]
+
+    if extension == 'mp4':
+        video_cnt += 1
+        file_path = f'{folder_path}/{file_name}'
+        print(f"\n[Info] Running {file_name} ({video_cnt}/{num_videos})")
+
+        os.system(f'python3 {python_file} --file {file_path} --threshold_score 0.3')
+
+        if not os.path.exists(f'./output/{video_name}/ground_truth/ground_truth.csv'):
+            gt_extractor = GtPositionExtractor(video_name, file_prefix=file_prefix)
+            gt_extractor.run()
+            print(f"[Info] Generated ./output/{video_name}/ground_truth/ground_truth.csv")
+        else:
+            print(f"[Info] Ground truth file already exists")
+
+print("\n[Info] Calculating mAP...")
 os.system(f'python3 real_ap_calculator.py --folder_path {folder_path}')
+
+print("==========================================")
+print(f"[Info] Execution completed! ({video_cnt}/{num_videos})\n")

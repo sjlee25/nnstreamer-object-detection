@@ -60,7 +60,7 @@ class ApCalculator:
         if not os.path.exists(result_folder_path):
             os.makedirs(result_folder_path)
         
-        result_file_path = result_folder_path + '/map.csv'
+        result_file_path = result_folder_path + '/mAP.csv'
         i = 0
         while True:
             if not os.path.isfile(result_file_path):

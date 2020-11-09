@@ -39,6 +39,7 @@ import colorsys
 import time
 import pandas as pd
 from datetime import datetime
+import cv2 # for temporarily get video size
 
 gi.require_version('Gst', '1.0')
 gi.require_version('GstVideo', '1.0')
@@ -46,6 +47,7 @@ gi.require_foreign('cairo')
 from gi.repository import Gst, GObject, GstVideo
 
 import gt_position_extractor
+import label_mapper
 
 class DetectedObject:
     def __init__(self, x, y, width, height, class_id, score):
@@ -85,8 +87,9 @@ class ObjectDetection:
         self.bboxes = []
         self.times = []
 
-        self.video_width = 872
-        self.video_height = 480
+        vid = cv2.VideoCapture(self.file_path)
+        self.video_width = int(vid.get(cv2.CAP_PROP_FRAME_WIDTH))
+        self.video_height = int(vid.get(cv2.CAP_PROP_FRAME_HEIGHT))
         self.model_width = 416
         self.model_height = 416
 
@@ -100,7 +103,7 @@ class ObjectDetection:
         # threshold values to drop detections
         self.iou_threshold = 0.5
         self.score_threshold = 0.3
-        self.threshold_score = args.threshold_score if args.threshold_score else self.threshold_score
+        # self.score_threshold = args.score_threshold if args.score_threshold else self.score_threshold
 
         # cairo overlay state
         self.cairo_valid = True
@@ -110,6 +113,9 @@ class ObjectDetection:
         with open(self.od_label, 'r') as data:
             for ID, name in enumerate(data):
                 self.labels[ID] = name.strip('\n')
+
+        self.mapper = label_mapper.LabelMapper(self.od_label)
+        self.labels = self.mapper.labels
 
         # set colors for overlay
         hsv_tuples = [(1.0 * x / self.num_labels, 1., 1.) for x in range(self.num_labels)]
@@ -134,7 +140,7 @@ class ObjectDetection:
             pipeline = f'filesrc location={self.file_path} ! decodebin name=decode decode. ! videoscale ! videorate '
 
         self.pipeline = Gst.parse_launch(pipeline + 
-            '! videoconvert ! video/x-raw,width=%d,height=%d,format=RGB,framerate=24/1 ! tee name=t ' % (self.video_width, self.video_height) +
+            '! videoconvert ! video/x-raw,width=%d,height=%d,format=RGB ! tee name=t ' % (self.video_width, self.video_height) +
             't. ! queue ! videoconvert ! timeoverlay ! textoverlay name=text_overlay ! cairooverlay name=tensor_res tensor_res. ! fpsdisplaysink name=fps_sink video-sink=ximagesink text-overlay=false signal-fps-measurements=true '
             't. ! queue leaky=2 max-size-buffers=1 ! videoscale add-borders=1 ! video/x-raw,width=%d,height=%d,format=RGB,framerate=24/1,pixel-aspect-ratio=1/1 ! ' % (self.model_width, self.model_height) + 
                 'tensor_converter input-dim=3:%d:%d:1 ! tensor_transform mode=typecast option=float32 ! ' % (self.model_width, self.model_height) +
@@ -171,9 +177,6 @@ class ObjectDetection:
         fps_sink.connect('fps-measurements', self.on_fps_message)
 
         # make out file
-        self.csv_name = './output/'+datetime.now().strftime('%Y-%m-%d %H:%M:%S')+'.csv'
-        self.csv_data = []
-
         folder_path = './output/'
         if('train' in self.file_path):
             folder_path = folder_path + self.train_folder_path + '/' + self.file_path.split('/')[-1].split('.')[0]
@@ -182,20 +185,63 @@ class ObjectDetection:
         
         if not os.path.exists(folder_path):
             os.makedirs(folder_path)
-        listdir = os.listdir(folder_path)
-        if 'ground_truth.csv' in listdir:
-            listdir.remove('ground_truth.csv')
-        number = len(listdir) if listdir != None else 0
-        self.detected_objects_csv_path = folder_path + '/' + str(number) + '.csv'
+        
+        detected_folder_path = folder_path + '/detections'
+        if not os.path.exists(detected_folder_path):
+            os.makedirs(detected_folder_path)
+
+        fps_folder_path = folder_path + '/fps'
+        if not os.path.exists(fps_folder_path):
+            os.makedirs(fps_folder_path)
+                
+        detected_objects_csv_path = detected_folder_path + f'/all_detections.csv'
+
+        i = 0
+        while True:
+            if not os.path.isfile(detected_objects_csv_path):
+                break
+            else:
+                i += 1
+                if i == 1:
+                    detected_objects_csv_path = detected_objects_csv_path.replace('.csv', '_1.csv')
+                    if not os.path.isfile(detected_objects_csv_path):
+                        break
+                else:
+                    if f'_{i-1}.csv' in detected_objects_csv_path:
+                        detected_objects_csv_path = detected_objects_csv_path.replace(f'_{i-1}.csv', f'_{i}.csv')
+                    else:
+                        detected_objects_csv_path = detected_objects_csv_path.replace('.csv', f'_{i}.csv')
+
+        fps_file_path = fps_folder_path + f'/{self.score_threshold}.csv'
+
+        i = 0
+        while True:
+            if not os.path.isfile(fps_file_path):
+                break
+            else:
+                i += 1
+                if i == 1:
+                    fps_file_path = fps_file_path.replace('.csv', '_1.csv')
+                    if not os.path.isfile(fps_file_path):
+                        break
+                else:
+                    if f'_{i-1}.csv' in fps_file_path:
+                        fps_file_path = fps_file_path.replace(f'_{i-1}.csv', f'_{i}.csv')
+                    else:
+                        fps_file_path = fps_file_path.replace('.csv', f'_{i}.csv')
+
+        self.detected_objects_data = []
+        self.fps_data = []
        
         self.gt_objects = {}
-        self.draw_gt_box = True
+        # self.draw_gt_box = True
+        self.draw_gt_box = False
         if self.draw_gt_box:
             file_path = self.file_path.split('/')[-1]
             extension_idx = file_path.rfind('.')
             file_path = file_path[:extension_idx]
             self.gt_objects = gt_position_extractor.GtPositionExtractor(file_path).get_gtobjects_from_csv()
-        print(f'''[Info] Read ground truth boxes in {len(self.gt_objects)} frames''')
+            print(f'''[Info] Read ground truth boxes in {len(self.gt_objects)} frames''')
 
         # start pipeline
         self.pipeline.set_state(Gst.State.PLAYING)
@@ -210,10 +256,10 @@ class ObjectDetection:
         bus.remove_signal_watch()
 
         # write output
-        self.csv = pd.DataFrame(self.csv_data, columns = ['fps', 'tensor_fps'])
-        self.csv.to_csv(self.csv_name, index=False, mode = 'w')
-        self.csv = pd.DataFrame(self.gt_objects)
-        self.csv.to_csv(self.detected_objects_csv_path, index=False, header=False, mode='w')
+        self.csv = pd.DataFrame(self.fps_data, columns = ['fps', 'tensor_fps'])
+        self.csv.to_csv(fps_file_path, index=False, mode = 'w')
+        self.csv = pd.DataFrame(self.detected_objects_data)
+        self.csv.to_csv(detected_objects_csv_path, index=False, header=False, mode='w')
 
         # calculate average
         interval = (self.times[-1] - self.times[0])
@@ -272,7 +318,11 @@ class ObjectDetection:
         pred_bbox = self.get_arr_from_buffer(buffer, 0, 2535*85, 'f').reshape((-1, 85))
         success, self.frame = self.frame_by_bin.query_position(Gst.Format.DEFAULT)
         
-        bboxes = self.postprocess_boxes(pred_bbox)
+        bboxes, bboxes_all = self.postprocess_boxes(pred_bbox)
+        bboxes_all = self.nms(bboxes_all, method='nms')
+        for bbox in bboxes_all:
+            self.detected_objects_data.append([str(self.frame).zfill(6), bbox[0], bbox[1], bbox[2], bbox[3], self.mapper.get_data_set_label(int(bbox[5])), bbox[4]])
+
         self.bboxes = self.nms(bboxes, method='nms')
         self.times.append(time.time())
         
@@ -441,13 +491,18 @@ class ObjectDetection:
         classes = np.argmax(pred_prob, axis=-1)
         scores = pred_conf * pred_prob[np.arange(len(pred_coor)), classes]
         score_mask = scores >= self.score_threshold
-        
-        # apply masks
+        score_mask_all = scores > 0.
+
+        mask_all = np.logical_and(scale_mask, score_mask_all)
         mask = np.logical_and(scale_mask, score_mask)
+
+        coors_all, scores_all, classes_all = pred_coor[mask_all], scores[mask_all], classes[mask_all]
         coors, scores, classes = pred_coor[mask], scores[mask], classes[mask]
 
         decoded_bbox = np.concatenate([coors, scores[:, np.newaxis], classes[:, np.newaxis]], axis=-1)
-        return decoded_bbox
+        decoded_bbox_all = np.concatenate([coors_all, scores_all[:, np.newaxis], classes_all[:, np.newaxis]], axis=-1)
+
+        return decoded_bbox, decoded_bbox_all
 
     def on_fps_message(self, fpsdisplaysink, fps, droprate, avgfps):
         if len(self.times) >= 2:
@@ -455,7 +510,7 @@ class ObjectDetection:
             label = 'video-fps: %.2f  overlay-fps: %.2f' % (fps, 1/interval)
             textoverlay = self.pipeline.get_by_name('text_overlay')
             textoverlay.set_property('text', label)
-            # self.csv_data.append([fps, 1/interval])
+            self.fps_data.append([fps, 1/interval])
 
 if __name__ == '__main__':
     od_instance = ObjectDetection()
