@@ -314,13 +314,14 @@ class ObjectDetection:
             return
         
         # output shape: [1][2535 = 3 * (13*13 + 26*26)][85 = 4(x_min, y_min, x_max, y_max) + 1(confidence) + 80(class scores)]
-        pred_bbox = self.get_arr_from_buffer(buffer, 0, 2535*85, 'f').reshape((-1, 85))
+        pred_bbox = self.get_arr_from_buffer(buffer, 0, 2535*85, 'f')
         success, self.frame = self.frame_by_bin.query_position(Gst.Format.DEFAULT)
         
-        bboxes, bboxes_all = self.postprocess_boxes(pred_bbox)
-        bboxes_all = self.nms(bboxes_all, method='nms')
-        for bbox in bboxes_all:
-            self.detected_objects_data.append([str(self.frame).zfill(6), bbox[0], bbox[1], bbox[2], bbox[3], self.mapper.get_data_set_label(int(bbox[5])), bbox[4]])
+        bboxes = self.postprocess_boxes(pred_bbox)
+        # bboxes, bboxes_all = self.postprocess_boxes(pred_bbox)
+        # bboxes_all = self.nms(bboxes_all, method='nms')
+        # for bbox in bboxes_all:
+        #     self.detected_objects_data.append([str(self.frame).zfill(6), bbox[0], bbox[1], bbox[2], bbox[3], self.mapper.get_data_set_label(int(bbox[5])), bbox[4]])
 
         self.bboxes = self.nms(bboxes, method='nms')
         self.times.append(time.time())
@@ -469,7 +470,7 @@ class ObjectDetection:
 
         # # (1) (x, y, w, h) --> (xmin, ymin, xmax, ymax)
         # pred_coor = np.concatenate([pred_xywh[:, :2] - pred_xywh[:, 2:] * 0.5, pred_xywh[:, :2] + pred_xywh[:, 2:] * 0.5], axis=-1)
-        pred_coor = pred_xywh
+        pred_coor = np.array(pred_xywh)
 
         # # (2) (xmin, ymin, xmax, ymax) -> (xmin_org, ymin_org, xmax_org, ymax_org)
         pred_coor[:, 0::2] = 1.0 * (pred_coor[:, 0::2] - self.dw) / self.resize_ratio
@@ -492,16 +493,16 @@ class ObjectDetection:
         score_mask = scores >= self.score_threshold
         score_mask_all = scores > 0.
 
-        mask_all = np.logical_and(scale_mask, score_mask_all)
         mask = np.logical_and(scale_mask, score_mask)
-
-        coors_all, scores_all, classes_all = pred_coor[mask_all], scores[mask_all], classes[mask_all]
         coors, scores, classes = pred_coor[mask], scores[mask], classes[mask]
-
         decoded_bbox = np.concatenate([coors, scores[:, np.newaxis], classes[:, np.newaxis]], axis=-1)
-        decoded_bbox_all = np.concatenate([coors_all, scores_all[:, np.newaxis], classes_all[:, np.newaxis]], axis=-1)
 
-        return decoded_bbox, decoded_bbox_all
+        # mask_all = np.logical_and(scale_mask, score_mask_all)
+        # coors_all, scores_all, classes_all = pred_coor[mask_all], scores[mask_all], classes[mask_all]
+        # decoded_bbox_all = np.concatenate([coors_all, scores_all[:, np.newaxis], classes_all[:, np.newaxis]], axis=-1)
+
+        # return decoded_bbox, decoded_bbox_all
+        return decoded_bbox
 
     def on_fps_message(self, fpsdisplaysink, fps, droprate, avgfps):
         if len(self.times) >= 2:
