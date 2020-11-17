@@ -33,7 +33,7 @@ import logging
 import gi
 from math import exp
 import cairo
-import struct
+import numpy as np
 import time
 import pandas as pd
 from datetime import datetime
@@ -42,7 +42,7 @@ import cv2 # for temporarily get video size
 gi.require_version('Gst', '1.0')
 gi.require_version('GstVideo', '1.0')
 gi.require_foreign('cairo')
-from gi.repository import Gst, GObject, GstVideo
+from gi.repository import Gst, GObject, GstVideo, GLib
 
 import gt_position_extractor
 import label_mapper
@@ -107,7 +107,7 @@ class ObjectDetection:
         if not self.model_init():
             raise Exception
 
-        GObject.threads_init()
+        # GObject.threads_init()
         Gst.init(argv)
 
     def run(self):
@@ -116,7 +116,7 @@ class ObjectDetection:
         :return: None
         """
         # main loop
-        self.loop = GObject.MainLoop()
+        self.loop = GLib.MainLoop()
 
         # gstreamer pipeline
         if self.use_web_cam :
@@ -351,7 +351,7 @@ class ObjectDetection:
         
         if result:
             if mapinfo_content.size == expected_size:
-                content_arr = struct.unpack(str(expected_size//4)+get_type, mapinfo_content.data)
+                content_arr = np.frombuffer(mapinfo_content.data, dtype=np.float32)
                 buffer_content.unmap(mapinfo_content)
                 return content_arr
         else:

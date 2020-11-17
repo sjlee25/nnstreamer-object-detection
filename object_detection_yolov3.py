@@ -44,12 +44,13 @@ import cv2 # for temporarily get video size
 gi.require_version('Gst', '1.0')
 gi.require_version('GstVideo', '1.0')
 gi.require_foreign('cairo')
-from gi.repository import Gst, GObject, GstVideo
+from gi.repository import Gst, GObject, GstVideo, GLib
 
 import gt_position_extractor
 import label_mapper
 
 os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
+os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 
 class DetectedObject:
     def __init__(self, x, y, width, height, class_id, score):
@@ -124,7 +125,7 @@ class ObjectDetection:
         colors = list(map(lambda x: colorsys.hsv_to_rgb(*x), hsv_tuples))
         self.colors = list(map(lambda x: (int(x[0] * 255), int(x[1] * 255), int(x[2] * 255)), colors))
 
-        GObject.threads_init()
+        # GObject.threads_init()
         Gst.init(argv)
 
     def run(self):
@@ -133,7 +134,7 @@ class ObjectDetection:
         :return: None
         """
         # main loop
-        self.loop = GObject.MainLoop()
+        self.loop = GLib.MainLoop()
 
         # gstreamer pipeline
         if self.use_web_cam :
@@ -144,7 +145,7 @@ class ObjectDetection:
         self.pipeline = Gst.parse_launch(pipeline + 
             '! videoconvert ! video/x-raw,width=%d,height=%d,format=RGB ! tee name=t ' % (self.video_width, self.video_height) +
             't. ! queue ! videoconvert ! timeoverlay ! textoverlay name=text_overlay ! cairooverlay name=tensor_res tensor_res. ! fpsdisplaysink name=fps_sink video-sink=ximagesink text-overlay=false signal-fps-measurements=true '
-            't. ! queue leaky=2 max-size-buffers=1 ! videoscale add-borders=1 ! video/x-raw,width=%d,height=%d,format=RGB,pixel-aspect-ratio=1/1 ! ' % (self.model_width, self.model_height) + 
+            't. ! queue leaky=2 max-size-buffers=3 ! videoscale add-borders=1 ! video/x-raw,width=%d,height=%d,format=RGB,pixel-aspect-ratio=1/1 ! ' % (self.model_width, self.model_height) + 
                 'tensor_converter input-dim=3:%d:%d:1 ! tensor_transform mode=arithmetic option=typecast:float32,div:255.0 ! ' % (self.model_width, self.model_height) +
                 'tensor_filter framework=%s model=%s ' % (self.od_framework, self.od_model) + 
                     'input=3:%d:%d:1 inputname=input/input_data inputtype=float32 ' % (self.model_width, self.model_height) + 
@@ -297,7 +298,7 @@ class ObjectDetection:
 
         if result:
             if mapinfo_content.size == expected_size*4:
-                content_arr = np.array(struct.unpack(str(expected_size)+data_type, mapinfo_content.data), dtype=np.float32)
+                content_arr = np.frombuffer(mapinfo_content.data, dtype=np.float32)
                 buffer_content.unmap(mapinfo_content)
                 return np.reshape(content_arr, (-1, 85))
         else:

@@ -33,7 +33,6 @@ import logging
 import gi
 from math import exp
 import cairo
-import struct
 import numpy as np
 import colorsys
 import time
@@ -44,7 +43,7 @@ import cv2 # for temporarily get video size
 gi.require_version('Gst', '1.0')
 gi.require_version('GstVideo', '1.0')
 gi.require_foreign('cairo')
-from gi.repository import Gst, GObject, GstVideo
+from gi.repository import Gst, GObject, GstVideo, GLib
 
 import gt_position_extractor
 import label_mapper
@@ -122,7 +121,7 @@ class ObjectDetection:
         colors = list(map(lambda x: colorsys.hsv_to_rgb(*x), hsv_tuples))
         self.colors = list(map(lambda x: (int(x[0] * 255), int(x[1] * 255), int(x[2] * 255)), colors))
 
-        GObject.threads_init()
+        # GObject.threads_init()
         Gst.init(argv)
 
     def run(self):
@@ -131,7 +130,7 @@ class ObjectDetection:
         :return: None
         """
         # main loop
-        self.loop = GObject.MainLoop()
+        self.loop = GLib.MainLoop()
 
         # gstreamer pipeline
         if self.use_web_cam :
@@ -295,9 +294,9 @@ class ObjectDetection:
 
         if result:
             if mapinfo_content.size == expected_size*4:
-                content_arr = np.array(struct.unpack(str(expected_size)+data_type, mapinfo_content.data), dtype=np.float32)
+                content_arr = np.frombuffer(mapinfo_content.data, dtype=np.float32)
                 buffer_content.unmap(mapinfo_content)
-                return content_arr
+                return np.reshape(content_arr, (-1, 85))
         else:
             buffer_content.unmap(mapinfo_content)
             print('Error: getting memory from buffer with index %d failed' % (idx))
@@ -333,7 +332,7 @@ class ObjectDetection:
         # draw_cnt = 0
         context.select_font_face('Sans', cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
         context.set_font_size(20)
-        context.set_line_width(3.0)
+        context.set_line_width(2.0)
         context.set_source_rgb(0.1, 1.0, 0.8)
 
         # bboxes: [x_min, y_min, x_max, y_max, probability, cls_id] format coordinates.
@@ -473,15 +472,15 @@ class ObjectDetection:
         pred_coor = pred_xywh
 
         # # (2) (xmin, ymin, xmax, ymax) -> (xmin_org, ymin_org, xmax_org, ymax_org)
-        pred_coor[:, 0::2] = (pred_coor[:, 0::2] - self.dw) / self.resize_ratio
-        pred_coor[:, 1::2] = (pred_coor[:, 1::2] - self.dh) / self.resize_ratio
+        pred_coor[:, 0::2] = 1.0 * (pred_coor[:, 0::2] - self.dw) / self.resize_ratio
+        pred_coor[:, 1::2] = 1.0 * (pred_coor[:, 1::2] - self.dh) / self.resize_ratio
 
         # # (3) clip some boxes those are out of range
         pred_coor = np.concatenate([np.maximum(pred_coor[:, :2], [0, 0]),
                                     np.minimum(pred_coor[:, 2:], [self.video_width - 1, self.video_height - 1])], axis=-1)
         invalid_mask = np.logical_or((pred_coor[:, 0] > pred_coor[:, 2]), (pred_coor[:, 1] > pred_coor[:, 3]))
         pred_coor[invalid_mask] = 0
-        pred_coor = np.array(pred_coor, dtype=np.uint16)
+        # pred_coor = np.array(pred_coor, dtype=np.uint16)
 
         # # (4) discard some invalid boxes
         bboxes_scale = np.sqrt(np.multiply.reduce(pred_coor[:, 2:4] - pred_coor[:, 0:2], axis=-1))
