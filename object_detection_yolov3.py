@@ -33,6 +33,7 @@ import logging
 import gi
 from math import exp
 import cairo
+import struct
 import numpy as np
 import colorsys
 import time
@@ -47,6 +48,9 @@ from gi.repository import Gst, GObject, GstVideo, GLib
 
 import gt_position_extractor
 import label_mapper
+
+os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
+os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 
 class DetectedObject:
     def __init__(self, x, y, width, height, class_id, score):
@@ -72,7 +76,7 @@ class ObjectDetection:
         args = parser.parse_args()
 
         self.od_framework= 'tensorflow'
-        self.od_model = args.model if args.model else './models/yolo_v3/frozen_yolov3_tiny.pb'
+        self.od_model = args.model if args.model else './models/yolo_v3/yolov3.pb'
         self.od_label = args.label if args.label else './models/yolo_v3/coco.names'
         self.use_web_cam = args.use_web_cam if args.use_web_cam else False
         self.file_path = args.file if args.file else './video/test_video_street.mp4'
@@ -141,11 +145,11 @@ class ObjectDetection:
         self.pipeline = Gst.parse_launch(pipeline + 
             '! videoconvert ! video/x-raw,width=%d,height=%d,format=RGB ! tee name=t ' % (self.video_width, self.video_height) +
             't. ! queue ! videoconvert ! timeoverlay ! textoverlay name=text_overlay ! cairooverlay name=tensor_res tensor_res. ! fpsdisplaysink name=fps_sink video-sink=ximagesink text-overlay=false signal-fps-measurements=true '
-            't. ! queue leaky=2 max-size-buffers=1 ! videoscale add-borders=1 ! video/x-raw,width=%d,height=%d,format=RGB,framerate=24/1,pixel-aspect-ratio=1/1 ! ' % (self.model_width, self.model_height) + 
-                'tensor_converter input-dim=3:%d:%d:1 ! tensor_transform mode=typecast option=float32 ! ' % (self.model_width, self.model_height) +
+            't. ! queue leaky=2 max-size-buffers=3 ! videoscale add-borders=1 ! video/x-raw,width=%d,height=%d,format=RGB,pixel-aspect-ratio=1/1 ! ' % (self.model_width, self.model_height) + 
+                'tensor_converter input-dim=3:%d:%d:1 ! tensor_transform mode=arithmetic option=typecast:float32,div:255.0 ! ' % (self.model_width, self.model_height) +
                 'tensor_filter framework=%s model=%s ' % (self.od_framework, self.od_model) + 
-                    'input=3:%d:%d:1 inputname=inputs inputtype=float32 ' % (self.model_width, self.model_height) + 
-                    'output=85:2535:1 outputname=output_boxes outputtype=float32 ! '
+                    'input=3:%d:%d:1 inputname=input/input_data inputtype=float32 ' % (self.model_width, self.model_height) + 
+                    'output=85:3:13:13:1,85:3:26:26:1,85:3:52:52:1 outputname=pred_lbbox/concat_2,pred_mbbox/concat_2,pred_sbbox/concat_2 outputtype=float32,float32,float32 ! '
                 'tensor_sink name=tensor_sink'
         )
         print('[Info] Pipeline checked!')
@@ -310,11 +314,15 @@ class ObjectDetection:
         :return: None
         """
 
-        if not self.running or buffer.n_memory() != 1:
+        if not self.running or buffer.n_memory() != 3:
             return
         
         # output shape: [1][2535 = 3 * (13*13 + 26*26)][85 = 4(x_min, y_min, x_max, y_max) + 1(confidence) + 80(class scores)]
-        pred_bbox = self.get_arr_from_buffer(buffer, 0, 2535*85, 'f')
+        pred_lbbox = self.get_arr_from_buffer(buffer, 0, 13*13*3*85, 'f')
+        pred_mbbox = self.get_arr_from_buffer(buffer, 1, 26*26*3*85, 'f')
+        pred_sbbox = self.get_arr_from_buffer(buffer, 2, 52*52*3*85, 'f')
+
+        pred_bbox = np.concatenate([pred_sbbox, pred_mbbox, pred_lbbox], axis=0)
         success, self.frame = self.frame_by_bin.query_position(Gst.Format.DEFAULT)
         
         bboxes = self.postprocess_boxes(pred_bbox)
@@ -462,15 +470,14 @@ class ObjectDetection:
         return best_bboxes
 
     def postprocess_boxes(self, pred_bbox):
-       #  pred_bbox = np.array(pred_bbox)
-
+        # pred_bbox = np.array(pred_bbox)
+        
         pred_xywh = pred_bbox[:, 0:4]
         pred_conf = pred_bbox[:, 4]
         pred_prob = pred_bbox[:, 5:]
 
         # # (1) (x, y, w, h) --> (xmin, ymin, xmax, ymax)
-        # pred_coor = np.concatenate([pred_xywh[:, :2] - pred_xywh[:, 2:] * 0.5, pred_xywh[:, :2] + pred_xywh[:, 2:] * 0.5], axis=-1)
-        pred_coor = np.array(pred_xywh)
+        pred_coor = np.concatenate([pred_xywh[:, :2] - pred_xywh[:, 2:] * 0.5, pred_xywh[:, :2] + pred_xywh[:, 2:] * 0.5], axis=-1)
 
         # # (2) (xmin, ymin, xmax, ymax) -> (xmin_org, ymin_org, xmax_org, ymax_org)
         pred_coor[:, 0::2] = 1.0 * (pred_coor[:, 0::2] - self.dw) / self.resize_ratio
