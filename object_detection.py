@@ -7,6 +7,7 @@ import time
 import pandas as pd
 import colorsys
 import cv2  # for temporarily get video size
+import logging
 
 gi.require_version('Gst', '1.0')
 gi.require_version('GstVideo', '1.0')
@@ -83,7 +84,7 @@ class ObjectDetector:
             for ID, name in enumerate(data):
                 self.labels[ID] = name.strip('\n')
 
-        self.mapper = label_mapper.LabelMapper(self.od_label)
+        self.mapper = label_mapper.LabelMapper(self.label_path)
         self.labels = self.mapper.labels
 
         # set colors for overlay
@@ -107,16 +108,15 @@ class ObjectDetector:
         if self.use_webcam:
             pipeline = 'v4l2src name=cam_src ! videoscale '
         else:
-            pipeline = f'''filesrc location={self.file_path} ! decodebin name=decode decode. ! videoscale ! videorate '''
+            pipeline = f'''filesrc location={self.file_path} ! decodebin name=decode ! videoscale ! videorate '''
 
         # overlay
-        pipeline += '! videoconvert ! timeoverlay ! textoverlay name=text_overlay ! \n' + \
-                    '''     video/x-raw,width={self.video_width},height={self.video_height},format=RGB ! tee name=t \n''' + \
-                    't. ! queue ! videoconvert ! cairooverlay name=tensor_res tensor_res. ! ' + \
-                    'fpsdisplaysink name=fps_sink video-sink=ximagesink text-overlay=false signal-fps-measurements=true \n'
+        pipeline += f'''! videoconvert ! video/x-raw,width={self.video_width},height={self.video_height},format=RGB ! tee name=t \n''' + \
+                    't. ! queue ! videoconvert ! timeoverlay ! textoverlay name=text_overlay ! cairooverlay name=tensor_res ! \n' + \
+                    '     fpsdisplaysink name=fps_sink video-sink=ximagesink text-overlay=false signal-fps-measurements=true \n'
 
         # tensor convert
-        pipeline += f'''t. ! queue ! leaky=2 max-size-buffers={len(output_dim.keys())} ! videoscale add-borders=1 ! ''' + \
+        pipeline += f'''t. ! queue leaky=2 max-size-buffers={len(self.output_dim.keys())} ! videoscale add-borders=1 ! ''' + \
                     f'''video/x-raw,width={self.model_size},height={self.model_size},format=RGB,pixel-aspect-ratio=1/1 ! \n''' + \
                     f'''     tensor_converter input-dim=3:{self.model_size}:{self.model_size}:1 ! '''
 
@@ -127,8 +127,8 @@ class ObjectDetector:
 
         # tensor filter
         # input tensors
-        for input_tensor in input_dim:
-            inputs += f'''{input_dim[input_tensor]},'''
+        for input_tensor in self.input_dim:
+            inputs += f'''{self.input_dim[input_tensor]},'''
             input_names += f'''{input_tensor},'''
             input_types += f'''{input_type[input_tensor]},'''
         inputs = inputs[:-1]
@@ -136,8 +136,8 @@ class ObjectDetector:
         input_types = input_types[:-1]
 
         # output tensors
-        for output_tensor in output_dim:
-            outputs += f'''{output_dim[output_tensor]},'''
+        for output_tensor in self.output_dim:
+            outputs += f'''{self.output_dim[output_tensor]},'''
             output_names += f'''{output_tensor},'''
             output_types += f'''{output_type[output_tensor]},'''
         outputs = outputs[:-1]
@@ -146,7 +146,7 @@ class ObjectDetector:
 
         pipeline += f'''     tensor_filter framework={self.framework} model={self.weight_path} \n''' + \
                     f'''                   input={inputs} inputname={input_names} inputtype={input_types} \n''' + \
-                    f'''                   output={outputs} outputname={output_names} outputtype={output_types} \n'''
+                    f'''                   output={outputs} outputname={output_names} outputtype={output_types} ! \n'''
 
         # tensor sink
         pipeline += '     tensor_sink name=tensor_sink'
@@ -164,6 +164,11 @@ class ObjectDetector:
 
         pipeline = self.construct_pipeline()
         self.pipeline = Gst.parse_launch(pipeline)
+
+        # bus and message callback
+        bus = self.pipeline.get_bus()
+        bus.add_signal_watch()
+        bus.connect('message', self.on_bus_message)
 
         # tensor sink signal : new data callback
         tensor_sink = self.pipeline.get_by_name('tensor_sink')
@@ -193,12 +198,13 @@ class ObjectDetector:
         # quit when received eos or error message
         self.running = False
         self.pipeline.set_state(Gst.State.NULL)
+        bus.remove_signal_watch()
 
         # write output
         self.csv = pd.DataFrame(self.fps_data, columns=['fps', 'tensor_fps'])
-        self.csv.to_csv(fps_file_path, index=False, mode='w')
+        self.csv.to_csv(self.fps_file_path, index=False, mode='w')
         self.csv = pd.DataFrame(self.detected_objects_data)
-        self.csv.to_csv(detected_objects_csv_path, index=False, header=False, mode='w')
+        self.csv.to_csv(self.detected_objects_csv_path, index=False, header=False, mode='w')
 
         # calculate average
         interval = (self.times[-1] - self.times[0])
@@ -212,29 +218,29 @@ class ObjectDetector:
         :return: None
         """
 
-        if not self.running or buffer.n_memory() != 3:
+        if not self.running or buffer.n_memory() != len(self.output_dim):
             return
 
         # YOLO: [1][3 * n * n][85 = 4(x_min, y_min, x_max, y_max) + 1(confidence) + 80(class scores)]
         pred_bboxes = {}
         i = 0
         for name, dim in self.output_dim.items():
-            pred_bboxes[name] = self.get_arr_from_buffer(self.model_name, buffer, i, utils.get_tensor_size(dim))
+            bbox_data = utils.buffer_to_arr(self.model_name, buffer, i, utils.get_tensor_size(dim))
+            if self.model_name.find('yolo') >= 0:
+                bbox_data = np.reshape(bbox_data, (-1, 85))
+            pred_bboxes[name] = bbox_data
             i += 1
-        # pred_lbbox = self.get_arr_from_buffer(self.model_name, buffer, 0, 13 * 13 * 3 * 85)
-        # pred_mbbox = self.get_arr_from_buffer(self.model_name, buffer, 1, 26 * 26 * 3 * 85)
-        # pred_sbbox = self.get_arr_from_buffer(self.model_name, buffer, 2, 52 * 52 * 3 * 85)
 
         pred_bbox = np.concatenate([bbox for bbox in pred_bboxes.values()], axis=0)
         success, self.frame = self.frame_by_bin.query_position(Gst.Format.DEFAULT)
 
-        bboxes = self.postprocess_boxes(pred_bbox)
+        bboxes = utils.postprocess_boxes(pred_bbox, self.mcfg, self.video_width, self.video_height)
         # bboxes, bboxes_all = self.postprocess_boxes(pred_bbox)
         # bboxes_all = self.nms(bboxes_all, method='nms')
         # for bbox in bboxes_all:
         #     self.detected_objects_data.append([str(self.frame).zfill(6), bbox[0], bbox[1], bbox[2], bbox[3], self.mapper.get_data_set_label(int(bbox[5])), bbox[4]])
 
-        self.bboxes = self.nms(bboxes, method='nms')
+        self.bboxes = utils.nms(bboxes, method='nms')
         self.times.append(time.time())
 
     def draw_overlay_cb(self, overlay, context, timestamp, duration):
@@ -325,41 +331,41 @@ class ObjectDetector:
         if not os.path.exists(fps_folder_path):
             os.makedirs(fps_folder_path)
 
-        detected_objects_csv_path = detected_folder_path + f'/all_detections.csv'
+        self.detected_objects_csv_path = detected_folder_path + f'/all_detections.csv'
 
         i = 0
         while True:
-            if not os.path.isfile(detected_objects_csv_path):
+            if not os.path.isfile(self.detected_objects_csv_path):
                 break
             else:
                 i += 1
                 if i == 1:
-                    detected_objects_csv_path = detected_objects_csv_path.replace('.csv', '_1.csv')
-                    if not os.path.isfile(detected_objects_csv_path):
+                    self.detected_objects_csv_path = self.detected_objects_csv_path.replace('.csv', '_1.csv')
+                    if not os.path.isfile(self.detected_objects_csv_path):
                         break
                 else:
-                    if f'_{i - 1}.csv' in detected_objects_csv_path:
-                        detected_objects_csv_path = detected_objects_csv_path.replace(f'_{i - 1}.csv', f'_{i}.csv')
+                    if f'_{i - 1}.csv' in self.detected_objects_csv_path:
+                        self.detected_objects_csv_path = self.detected_objects_csv_path.replace(f'_{i - 1}.csv', f'_{i}.csv')
                     else:
-                        detected_objects_csv_path = detected_objects_csv_path.replace('.csv', f'_{i}.csv')
+                        self.detected_objects_csv_path = self.detected_objects_csv_path.replace('.csv', f'_{i}.csv')
 
-        fps_file_path = fps_folder_path + f'/{self.score_threshold}.csv'
+        self.fps_file_path = fps_folder_path + f'/{self.score_threshold}.csv'
 
         i = 0
         while True:
-            if not os.path.isfile(fps_file_path):
+            if not os.path.isfile(self.fps_file_path):
                 break
             else:
                 i += 1
                 if i == 1:
-                    fps_file_path = fps_file_path.replace('.csv', '_1.csv')
-                    if not os.path.isfile(fps_file_path):
+                    self.fps_file_path = self.fps_file_path.replace('.csv', '_1.csv')
+                    if not os.path.isfile(self.fps_file_path):
                         break
                 else:
-                    if f'_{i - 1}.csv' in fps_file_path:
-                        fps_file_path = fps_file_path.replace(f'_{i - 1}.csv', f'_{i}.csv')
+                    if f'_{i - 1}.csv' in self.fps_file_path:
+                        self.fps_file_path = self.fps_file_path.replace(f'_{i - 1}.csv', f'_{i}.csv')
                     else:
-                        fps_file_path = fps_file_path.replace('.csv', f'_{i}.csv')
+                        self.fps_file_path = self.fps_file_path.replace('.csv', f'_{i}.csv')
 
         self.detected_objects_data = []
         self.fps_data = []
@@ -373,6 +379,30 @@ class ObjectDetector:
             file_path = file_path[:extension_idx]
             self.gt_objects = gt_position_extractor.GtPositionExtractor(file_path).get_gtobjects_from_csv()
             print(f'''[Info] Read ground truth boxes in {len(self.gt_objects)} frames''')
+
+    def on_bus_message(self, bus, message):
+        """Callback for message.
+
+        :param bus: pipeline bus
+        :param message: message from pipeline
+        :return: None
+        """
+        if message.type == Gst.MessageType.EOS:
+            logging.info('received eos message')
+            self.loop.quit()
+        elif message.type == Gst.MessageType.ERROR:
+            error, debug = message.parse_error()
+            logging.warning('[error] %s : %s', error.message, debug)
+            self.loop.quit()
+        elif message.type == Gst.MessageType.WARNING:
+            error, debug = message.parse_warning()
+            logging.warning('[warning] %s : %s', error.message, debug)
+        elif message.type == Gst.MessageType.STREAM_START:
+            logging.info('received start message')
+        elif message.type == Gst.MessageType.QOS:
+            data_format, processed, dropped = message.parse_qos_stats()
+            format_str = Gst.Format.get_name(data_format)
+            logging.debug('[qos] format[%s] processed[%d] dropped[%d]', format_str, processed, dropped)
 
 
 if __name__ == '__main__':

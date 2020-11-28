@@ -5,11 +5,12 @@ import cairo
 from config import cfg
 
 
-def get_expected_size():
-    pass
+def get_tensor_size(dim):
+    dims = list(map(int, dim.split(':')))
+    return np.prod(dims)
 
 
-def get_arr_from_buffer(model_name, buffer, idx, expected_size, data_type=np.float32):
+def buffer_to_arr(model_name, buffer, idx, expected_size, data_type=np.float32):
     buffer_content = buffer.get_memory(idx)
     result, mapinfo_content = buffer_content.map(Gst.MapFlags.READ)
 
@@ -65,17 +66,17 @@ def nms(bboxes, sigma=0.3, method='nms'):
             best_bbox = cls_bboxes[max_ind]
             best_bboxes.append(best_bbox)
             cls_bboxes = np.concatenate([cls_bboxes[: max_ind], cls_bboxes[max_ind + 1:]])
-            iou = iou(best_bbox[np.newaxis, :4], cls_bboxes[:, :4])
-            weight = np.ones((len(iou),), dtype=np.float32)
+            iou_val = iou(best_bbox[np.newaxis, :4], cls_bboxes[:, :4])
+            weight = np.ones((len(iou_val),), dtype=np.float32)
 
             assert method in ['nms', 'soft-nms']
 
             if method == 'nms':
-                iou_mask = iou > cfg.GLOBAL.IOU_THRESHOLD
+                iou_mask = iou_val > cfg.GLOBAL.IOU_THRESHOLD
                 weight[iou_mask] = 0.0
 
             if method == 'soft-nms':
-                weight = np.exp(-(1.0 * iou ** 2 / sigma))
+                weight = np.exp(-(1.0 * iou_val ** 2 / sigma))
 
             cls_bboxes[:, 4] = cls_bboxes[:, 4] * weight
             score_mask = cls_bboxes[:, 4] > 0.
@@ -83,9 +84,12 @@ def nms(bboxes, sigma=0.3, method='nms'):
 
     return best_bboxes
 
-def postprocess_boxes(pred_bbox, model_size, video_width, video_height):
+def postprocess_boxes(pred_bbox, model_cfg, video_width, video_height):
     # pred_bbox = np.array(pred_bbox)
     valid_scale = [0, np.inf]
+    model_size = model_cfg.INPUT_SIZE
+    model_name = model_cfg.MODEL_NAME
+
     resize_ratio = min(model_size / video_width, model_size / video_height)
     dw = (model_size - resize_ratio * video_width) / 2.
     dh = (model_size - resize_ratio * video_height) / 2.
@@ -95,7 +99,9 @@ def postprocess_boxes(pred_bbox, model_size, video_width, video_height):
     pred_prob = pred_bbox[:, 5:]
 
     # # (1) (x, y, w, h) --> (xmin, ymin, xmax, ymax)
-    pred_coor = np.concatenate(
+    if model_name == 'yolo_tiny':
+        pred_coor = np.array(pred_xywh)
+    else: pred_coor = np.concatenate(
         [pred_xywh[:, :2] - pred_xywh[:, 2:] * 0.5, pred_xywh[:, :2] + pred_xywh[:, 2:] * 0.5], axis=-1)
 
     # # (2) (xmin, ymin, xmax, ymax) -> (xmin_org, ymin_org, xmax_org, ymax_org)
@@ -117,8 +123,8 @@ def postprocess_boxes(pred_bbox, model_size, video_width, video_height):
     # # (5) discard some boxes with low scores
     classes = np.argmax(pred_prob, axis=-1)
     scores = pred_conf * pred_prob[np.arange(len(pred_coor)), classes]
-    score_mask = scores >= score_threshold
-    score_mask_all = scores > 0.
+    score_mask = scores >= cfg.GLOBAL.SCORE_THRESHOLD
+    # score_mask_all = scores > 0.
 
     mask = np.logical_and(scale_mask, score_mask)
     coors, scores, classes = pred_coor[mask], scores[mask], classes[mask]
