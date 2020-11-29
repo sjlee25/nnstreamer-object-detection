@@ -15,18 +15,18 @@ __C.GLOBAL.FRAMEWORK            = 'tensorflow'
 __C.GLOBAL.DEVICE               = 'cpu'
 __C.GLOBAL.VIDEO_PATH           = '/home/sjlee/ILSVRC2015/Data/VID/snippets/val/ILSVRC2015_val_00107000.mp4'
 __C.GLOBAL.USE_WEBCAM           = False
+__C.GLOBAL.DRAW_GT              = False
 __C.GLOBAL.IOU_THRESHOLD        = 0.5
 __C.GLOBAL.SCORE_THRESHOLD      = 0.3
-__C.GLOBAL.DRAW_GT              = False
 
 # SSDLITE
 __C.SSDLITE.MODEL_NAME         = 'ssdlite'
 __C.SSDLITE.MODEL_PATH         = './models/ssdlite_v2/ssdlite_mobilenet_v2.pb'
 __C.SSDLITE.LABEL_PATH         = './models/ssdlite_v2/coco_labels_list.txt'
-__C.SSDLITE.INPUT_SIZE         = 300
-__C.SSDLITE.NUM_LABELS         = 91
+__C.SSDLITE.INPUT_SIZE         = 300  # not used
+__C.SSDLITE.NUM_LABELS         = 91   # not used
 __C.SSDLITE.MAX_DETECTION      = 100
-__C.SSDLITE.INPUT_DIM          = {'image_tensor': f'''3:{__C.SSDLITE.INPUT_SIZE}:{__C.SSDLITE.INPUT_SIZE}:1'''}
+__C.SSDLITE.INPUT_DIM          = {'image_tensor': f'''3:-1:-1:1'''}
 __C.SSDLITE.INPUT_TYPE         = {'image_tensor': 'uint8'}
 __C.SSDLITE.OUTPUT_DIM         = {'num_detections': '1', 'detection_classes': f'''{__C.SSDLITE.MAX_DETECTION}:1''', 'detection_scores': f'''{__C.SSDLITE.MAX_DETECTION}:1''', 'detection_boxes': f'''4:{__C.SSDLITE.MAX_DETECTION}:1'''}
 __C.SSDLITE.OUTPUT_TYPE        = {'num_detections': 'float32', 'detection_classes': 'float32', 'detection_scores': 'float32', 'detection_boxes': 'float32'}

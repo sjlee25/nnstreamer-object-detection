@@ -30,6 +30,38 @@ def buffer_to_arr(model_name, buffer, idx, expected_size, data_type=np.float32):
         exit(1)
 
 
+def decode_ssd(inf_result, video_width, video_height, frame):
+    scores = inf_result['detection_scores']
+    classes = inf_result['detection_classes']
+    boxes = np.reshape(inf_result['detection_boxes'], (-1, 4))
+    # num_detections = int(inf_result['num_detections'])
+
+    coors = boxes.copy()
+    coors[:, [0, 1]] = coors[:, [1, 0]]
+    coors[:, [2, 3]] = coors[:, [3, 2]]
+    coors[:, 0::2] *= video_width
+    coors[:, 1::2] *= video_height
+
+    return np.concatenate([coors, scores[:, np.newaxis], classes[:, np.newaxis]], axis=-1)
+
+    # while added_objects < num_detections:
+    #     added_objects += 1
+    #     idx += 1
+    #     score = scores[idx]
+    #     label_idx = int(classes[idx])
+
+    #     # [y_min, x_min, y_max, x_max]
+    #     box_idx = 4 * idx
+    #     x_min = boxes[box_idx + 1]
+    #     x_max = boxes[box_idx + 3]
+    #     y_min = boxes[box_idx + 0]
+    #     y_max = boxes[box_idx + 2]
+
+    #     detected_objects.append([x_min, y_min, x_max, y_max, score, label_idx])
+
+    # return np.array(detected_objects)
+
+
 def iou(boxes1, boxes2):
     # boxes1 = np.array(boxes1)
     # boxes2 = np.array(boxes2)

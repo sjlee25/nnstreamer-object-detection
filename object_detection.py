@@ -6,8 +6,8 @@ import numpy as np
 import time
 import pandas as pd
 import colorsys
-import cv2  # for temporarily get video size
 import logging
+import cv2
 
 gi.require_version('Gst', '1.0')
 gi.require_version('GstVideo', '1.0')
@@ -28,8 +28,7 @@ class ObjectDetector:
         parser.add_argument('--device', type=str, default=cfg.GLOBAL.DEVICE, help='device to use for inference')
         parser.add_argument('--gpu_idx', type=str, default='0', help='gpu device number to use if the gpu will be used')
         parser.add_argument('--video', type=str, default=cfg.GLOBAL.VIDEO_PATH, help='input video file path')
-        parser.add_argument('--use_webcam', action='store_true', default=cfg.GLOBAL.USE_WEBCAM,
-                            help='whether use web cam or not')
+        parser.add_argument('--use_webcam', action='store_true', default=cfg.GLOBAL.USE_WEBCAM, help='whether use web cam or not')
         parser.add_argument('--model', type=str, choices=cfg.GLOBAL.MODELS.keys(), help='model name to use')
         parser.add_argument('--score', type=float, default=cfg.GLOBAL.SCORE_THRESHOLD, help='threshold for score')
         parser.add_argument('--train_folder', type=str, default='train', help='for train set')
@@ -75,17 +74,13 @@ class ObjectDetector:
         self.bboxes = []
         self.times = []
 
-        # cairo overlay state
-        # self.cairo_valid = True
-        self.valid_scale = [0, np.inf]
+        self.mapper = label_mapper.LabelMapper(self.label_path)
+        self.labels = self.mapper.labels
 
         # load labels
         with open(self.label_path, 'r') as data:
             for ID, name in enumerate(data):
                 self.labels[ID] = name.strip('\n')
-
-        self.mapper = label_mapper.LabelMapper(self.label_path)
-        self.labels = self.mapper.labels
 
         # set colors for overlay
         hsv_tuples = [(1.0 * x / self.num_labels, 1., 1.) for x in range(self.num_labels)]
@@ -116,9 +111,12 @@ class ObjectDetector:
                     '     fpsdisplaysink name=fps_sink video-sink=ximagesink text-overlay=false signal-fps-measurements=true \n'
 
         # tensor convert
-        pipeline += f'''t. ! queue leaky=2 max-size-buffers={len(self.output_dim.keys())} ! videoscale add-borders=1 ! ''' + \
-                    f'''video/x-raw,width={self.model_size},height={self.model_size},format=RGB,pixel-aspect-ratio=1/1 ! \n''' + \
-                    f'''     tensor_converter input-dim=3:{self.model_size}:{self.model_size}:1 ! '''
+        pipeline += f'''t. ! queue leaky=2 max-size-buffers={len(self.output_dim.keys())} ! videoscale add-borders=1 ! '''
+        if self.model_name.find('yolo') >= 0:
+            pipeline += f'''video/x-raw,width={self.model_size},height={self.model_size},format=RGB,pixel-aspect-ratio=1/1 ! \n''' + \
+            f'''     tensor_converter input-dim=3:{self.model_size}:{self.model_size}:1 ! '''
+        elif self.model_name.find('ssd') >= 0:
+            pipeline += f'''tensor_converter input-dim=3:{self.video_width}:{self.video_height}:1 ! '''
 
         # tensor transform
         tensor_transform = self.mcfg.TENSOR_TRANSFORM
@@ -128,6 +126,8 @@ class ObjectDetector:
         # tensor filter
         # input tensors
         for input_tensor in self.input_dim:
+            dim = f'''{self.input_dim[input_tensor]}'''
+            self.input_dim[input_tensor] = dim.replace('-1:-1', f'''{self.video_width}:{self.video_height}''')
             inputs += f'''{self.input_dim[input_tensor]},'''
             input_names += f'''{input_tensor},'''
             input_types += f'''{input_type[input_tensor]},'''
@@ -144,14 +144,14 @@ class ObjectDetector:
         output_names = output_names[:-1]
         output_types = output_types[:-1]
 
-        pipeline += f'''     tensor_filter framework={self.framework} model={self.weight_path} \n''' + \
+        pipeline += f'''\n     tensor_filter framework={self.framework} model={self.weight_path} \n''' + \
                     f'''                   input={inputs} inputname={input_names} inputtype={input_types} \n''' + \
                     f'''                   output={outputs} outputname={output_names} outputtype={output_types} ! \n'''
 
         # tensor sink
         pipeline += '     tensor_sink name=tensor_sink'
 
-        print('[Pipeline]', pipeline, '', sep='\n')
+        print('', '[Pipeline]', pipeline, '', sep='\n')
         return pipeline
 
     def run(self):
@@ -221,20 +221,23 @@ class ObjectDetector:
         if not self.running or buffer.n_memory() != len(self.output_dim):
             return
 
+        success, self.frame = self.frame_by_bin.query_position(Gst.Format.DEFAULT)
+
         # YOLO: [1][3 * n * n][85 = 4(x_min, y_min, x_max, y_max) + 1(confidence) + 80(class scores)]
-        pred_bboxes = {}
+        inf_result = {}
         i = 0
         for name, dim in self.output_dim.items():
             bbox_data = utils.buffer_to_arr(self.model_name, buffer, i, utils.get_tensor_size(dim))
-            if self.model_name.find('yolo') >= 0:
-                bbox_data = np.reshape(bbox_data, (-1, 85))
-            pred_bboxes[name] = bbox_data
+            inf_result[name] = bbox_data
             i += 1
 
-        pred_bbox = np.concatenate([bbox for bbox in pred_bboxes.values()], axis=0)
-        success, self.frame = self.frame_by_bin.query_position(Gst.Format.DEFAULT)
-
-        bboxes = utils.postprocess_boxes(pred_bbox, self.mcfg, self.video_width, self.video_height)
+        if self.model_name.find('yolo') >= 0:
+            bboxes = np.reshape(np.concatenate(list(inf_result.values()), axis=0), (-1, 85))
+            bboxes = utils.postprocess_boxes(bboxes, self.mcfg, self.video_width, self.video_height)
+        
+        elif self.model_name.find('ssd') >= 0:
+            bboxes = utils.decode_ssd(inf_result, self.video_width, self.video_height, self.frame)
+        
         # bboxes, bboxes_all = self.postprocess_boxes(pred_bbox)
         # bboxes_all = self.nms(bboxes_all, method='nms')
         # for bbox in bboxes_all:
