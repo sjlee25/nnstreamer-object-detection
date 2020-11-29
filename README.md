@@ -2,7 +2,7 @@
 
 ### 1. Introduction
 
-Object detection demo using NNStreamer and GStreamer framework.
+Video object detection demo using GStreamer and NNStreamer framework.
 
 <br>
 
@@ -12,7 +12,14 @@ Object detection demo using NNStreamer and GStreamer framework.
 
 <br>
 
-For ubuntu users, install nnstreamer with PPA repository as:
+To install gstreamer in ubuntu, run:
+```bash
+$ sudo apt install libgstreamer1.0-0 libgstreamer1.0-dev gstreamer1.0-tools gstreamer1.0-doc gstreamer1.0-x gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly  gstreamer1.0-alsa gstreamer1.0-libav gstreamer1.0-gl gstreamer1.0-gtk3 gstreamer1.0-qt5 gstreamer1.0-pulseaudio libgstreamer-plugins-base1.0-dev 
+```
+
+<br>
+
+Then install nnstreamer with PPA repository as:
 
 ```bash
 $ sudo apt-add-repository ppa:nnstreamer
@@ -24,8 +31,9 @@ All available nnstreamer plugins are listed in [official install guidelines for 
 <br>
 
 To use your own tensorflow libraries instead of ones given by nnstreamer-tensorflow package,
+you need to build and install nnstreamer from source.
 
-you need to build nnstreamer from source. You can refer to [install guidelines with Meson/Ninja build](https://github.com/nnstreamer/nnstreamer/blob/main/Documentation/getting-started-meson-build.md).
+You can refer to [install guidelines with Meson/Ninja build](https://github.com/nnstreamer/nnstreamer/blob/main/Documentation/getting-started-meson-build.md).
 
 <br>
 
@@ -33,46 +41,44 @@ you need to build nnstreamer from source. You can refer to [install guidelines w
 
 1. Clone this repository.
 
-```bash
-$ git clone https://github.com/lsj1213m/NNStreamer.git
-```
+    ```bash
+    $ git clone https://github.com/lsj1213m/NNStreamer-Object-Detection.git nnstreamer_object_detection
+    $ cd nnstreamer_object_detection
+    ```
 
 <br>
 
 2. Install required packages with pip.
 
-```bash
-$ pip install -r ./requirements.txt
-```
+    ```bash
+    $ pip install -r ./requirements.txt
+    ```
 
 <br>
 
 3. Run ```object_detection.py``` with options you want to demo video detection.
 
-```bash
-$ python object_detection.py --video [path to video file] [other options]
-```
+    ```bash
+    $ python object_detection.py --video [path to video file] [other options]
+    ```
 
-​	For example, you can run as follows if you want to use 0-th GPU with YOLOv3 model.
+    For example, you can run as follows if you want to use 0-th GPU with YOLOv3 model.
+    ```bash
+    $ python object_detection.py --video ./video/test_video_street.mp4 --model yolo --device gpu --gpu_idx 0
+    ```
 
-```bash
-$ python object_detection.py --video ./video/test_video_street.mp4 --model yolo --device gpu --gpu_idx 0
-```
+    <br>
+    All available options with descriptions are here.
 
-<br>
-
-​	All available options with descriptions are here.
-
-```bash
---video   [path to video file]: input video file path
---use_webcam: whether to use webcam or not (default: False)
---model   ['ssdlite'/'yolo_tiny'/'yolo']: model name to use
---score   [threshold value]: threshold for score (default: 0.3)
---device  ['cpu'/'gpu']: device to use for inference (default: 'cpu')
---gpu_idx ['0'/'1'/...]: gpu device number to use if the gpu will be used (default: '0')
-```
-
-​	These options and other model-specific settings can be modified in ```config.py```.
+    ```bash
+    --video   [path to video file]: input video file path
+    --use_webcam: whether to use webcam or not (default: False)
+    --model   ['ssdlite'/'yolo_tiny'/'yolo']: model name to use
+    --score   [threshold value]: threshold for score (default: 0.3)
+    --device  ['cpu'/'gpu']: device to use for inference (default: 'cpu')
+    --gpu_idx ['0'/'1'/...]: gpu device number to use if the gpu will be used (default: '0')
+    ```
+    These options and other model-specific settings can be modified in ```config.py```.
 
 <br>
 
@@ -83,9 +89,9 @@ $ python object_detection.py --video ./video/test_video_street.mp4 --model yolo 
 <br>
 
 ### 5. TODO
-- FPS, mAP measurements
-- Apply more  object detection models
-- Collaborate with TVM framework
+- Detailed FPS, mAP measurements
+- Apply more object detection models
+- Cooperate with TVM framework
 
 <br>
 
