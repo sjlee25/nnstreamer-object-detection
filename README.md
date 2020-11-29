@@ -4,13 +4,13 @@
 
 Object detection demo using NNStreamer and GStreamer framework.
 
-
+<br>
 
 ### 2. Requirements
 
-**GStreamer **and **NNStreamer** should be installed to run this demo.
+**GStreamer** and **NNStreamer** should be installed to run this demo.
 
-
+<br>
 
 For ubuntu users, install nnstreamer with PPA repository as:
 
@@ -21,13 +21,13 @@ $ sudo apt install nnstreamer nnstreamer-tensorflow
 
 All available nnstreamer plugins are listed in [official install guidelines for PPA repository](https://github.com/nnstreamer/nnstreamer/blob/main/Documentation/getting-started-ubuntu-ppa.md).
 
-
+<br>
 
 To use your own tensorflow libraries instead of ones given by nnstreamer-tensorflow package,
 
 you need to build nnstreamer from source. You can refer to [install guidelines with Meson/Ninja build](https://github.com/nnstreamer/nnstreamer/blob/main/Documentation/getting-started-meson-build.md).
 
-
+<br>
 
 ### 3. Usage
 
@@ -37,7 +37,7 @@ you need to build nnstreamer from source. You can refer to [install guidelines w
 $ git clone https://github.com/lsj1213m/NNStreamer.git
 ```
 
-
+<br>
 
 2. Install required packages with pip.
 
@@ -45,7 +45,7 @@ $ git clone https://github.com/lsj1213m/NNStreamer.git
 $ pip install -r ./requirements.txt
 ```
 
-
+<br>
 
 3. Run ```object_detection.py``` with options you want to demo video detection.
 
@@ -59,7 +59,7 @@ $ python object_detection.py --video [path to video file] [other options]
 $ python object_detection.py --video ./video/test_video_street.mp4 --model yolo --device gpu --gpu_idx 0
 ```
 
-
+<br>
 
 ​	All available options with descriptions are here.
 
@@ -74,23 +74,20 @@ $ python object_detection.py --video ./video/test_video_street.mp4 --model yolo 
 
 ​	These options and other model-specific settings can be modified in ```config.py```.
 
-
+<br>
 
 ### 4. Result
 
 
 
-
+<br>
 
 ### 5. TODO
-
 - FPS, mAP measurements
-
 - Apply more  object detection models
-
 - Collaborate with TVM framework
 
-  
+<br>
 
 ---
 
@@ -107,17 +104,17 @@ $ python object_detection.py --video ./video/test_video_street.mp4 --model yolo 
 - [wizyoung/YOLOv3_TensorFlow](https://github.com/wizyoung/YOLOv3_TensorFlow)
 - [zzh8829/yolov3-tf2](https://github.com/zzh8829/yolov3-tf2)
 
-
+<br>
 
 #### Papers
 
-- [NNStreamer: Stream Processing Paradigm for Neural Networks, Toward Efficient Development and Execution of On-Device AI Applications](https://arxiv.org/abs/1901.04985)
+- [NNStreamer: Stream Processing Paradigm for Neural Networks](https://arxiv.org/abs/1901.04985)
 
 - [SSD: Single Shot MultiBox Detector](https://arxiv.org/abs/1512.02325)
 
 - [YOLOv3: An Incremental Improvement](https://arxiv.org/abs/1804.02767)
 
-
+<br>
 
 #### Frameworks
 
@@ -127,7 +124,7 @@ $ python object_detection.py --video ./video/test_video_street.mp4 --model yolo 
 
 - [Tensorflow](https://www.tensorflow.org/)
 
-  
+<br>
 
 #### Datasets
 
