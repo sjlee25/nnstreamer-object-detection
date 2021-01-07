@@ -1,0 +1,7 @@
+numpy >= 1.17.3
+easydict
+pycairo
+gobject
+PyGObject
+pandas
+opencv-python
