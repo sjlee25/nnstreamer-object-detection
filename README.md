@@ -42,7 +42,7 @@ You can refer to [install guidelines with Meson/Ninja build](https://github.com/
 1. Clone this repository.
 
     ```bash
-    $ git clone https://github.com/lsj1213m/NNStreamer-Object-Detection.git nnstreamer_object_detection
+    $ git clone https://github.com/lsj1213m/nnstreamer-od.git
     $ cd nnstreamer_object_detection
     ```
 
@@ -73,7 +73,7 @@ You can refer to [install guidelines with Meson/Ninja build](https://github.com/
     ```bash
     --video   [path to video file]: input video file path
     --use_webcam: whether to use webcam or not (default: False)
-    --model   ['ssdlite'/'yolo_tiny'/'yolo']: model name to use
+    --model   ['frcnn'/'ssdlite'/'ssd'/'yolo_tiny'/'yolo']: model name to use
     --score   [threshold value]: threshold for score (default: 0.3)
     --device  ['cpu'/'gpu']: device to use for inference (default: 'cpu')
     --gpu_idx ['0'/'1'/...]: gpu device number to use if the gpu will be used (default: '0')
