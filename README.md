@@ -43,7 +43,7 @@ You can refer to [install guidelines with Meson/Ninja build](https://github.com/
 
     ```bash
     $ git clone https://github.com/lsj1213m/nnstreamer-od.git
-    $ cd nnstreamer_object_detection
+    $ cd nnstreamer-od
     ```
 
 <br>
@@ -64,7 +64,7 @@ You can refer to [install guidelines with Meson/Ninja build](https://github.com/
 
     For example, you can run as follows if you want to use 0-th GPU with YOLOv3 model.
     ```bash
-    $ python object_detection.py --video ./video/test_video_street.mp4 --model yolo --device gpu --gpu_idx 0
+    $ python object_detection.py --video ./video/street.mp4 --model yolo --device gpu --gpu_idx 0
     ```
 
     <br>
