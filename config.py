@@ -5,44 +5,76 @@ __C                             = edict()
 cfg                             = __C
 
 __C.GLOBAL                      = edict()
+__C.FRCNN                       = edict()
 __C.SSDLITE                     = edict()
+__C.SSD                         = edict()
 __C.YOLO_TINY                   = edict()
 __C.YOLO                        = edict()
 
 # global settings
-__C.GLOBAL.MODELS               = {'ssdlite': __C.SSDLITE, 'yolo_tiny': __C.YOLO_TINY, 'yolo': __C.YOLO}
+__C.GLOBAL.OS                   = 'mac'
+__C.GLOBAL.MODELS               = {'frcnn': __C.FRCNN, 'ssdlite': __C.SSDLITE, 'ssd': __C.SSD, 'yolo_tiny': __C.YOLO_TINY, 'yolo': __C.YOLO}
 __C.GLOBAL.FRAMEWORK            = 'tensorflow'
 __C.GLOBAL.DEVICE               = 'cpu'
-__C.GLOBAL.VIDEO_PATH           = './video/test_video_street.mp4'
+__C.GLOBAL.VIDEO_PATH           = './video/shibuya_crosswalk.mp4'
 __C.GLOBAL.USE_WEBCAM           = False
 __C.GLOBAL.DRAW_GT              = False
 __C.GLOBAL.IOU_THRESHOLD        = 0.5
-__C.GLOBAL.SCORE_THRESHOLD      = 0.3
+__C.GLOBAL.SCORE_THRESHOLD      = 0
+__C.GLOBAL.ENABLE_SYNC          = True
+__C.GLOBAL.ENABLE_PERF_LOG      = True
+__C.GLOBAL.ENABLE_DETECT_LOG    = False
 
-# SSDLITE
-__C.SSDLITE.MODEL_NAME         = 'ssdlite'
-__C.SSDLITE.MODEL_PATH         = './models/ssdlite_v2/ssdlite_mobilenet_v2.pb'
-__C.SSDLITE.LABEL_PATH         = './models/ssdlite_v2/coco_labels_list.txt'
-__C.SSDLITE.INPUT_SIZE         = 300  # not used
-__C.SSDLITE.NUM_LABELS         = 91   # not used
-__C.SSDLITE.MAX_DETECTION      = 100
-__C.SSDLITE.INPUT_DIM          = {'image_tensor': f'''3:-1:-1:1'''}
-__C.SSDLITE.INPUT_TYPE         = {'image_tensor': 'uint8'}
-__C.SSDLITE.OUTPUT_DIM         = {'num_detections': '1', 'detection_classes': f'''{__C.SSDLITE.MAX_DETECTION}:1''', 'detection_scores': f'''{__C.SSDLITE.MAX_DETECTION}:1''', 'detection_boxes': f'''4:{__C.SSDLITE.MAX_DETECTION}:1'''}
-__C.SSDLITE.OUTPUT_TYPE        = {'num_detections': 'float32', 'detection_classes': 'float32', 'detection_scores': 'float32', 'detection_boxes': 'float32'}
-__C.SSDLITE.TENSOR_TRANSFORM   = ''
+# Faster R-CNN
+__C.FRCNN.MODEL_NAME            = 'frcnn'
+__C.FRCNN.MODEL_PATH            = './models/rcnn/faster_rcnn_inception_v2.pb'
+__C.FRCNN.LABEL_PATH            = './models/rcnn/coco_labels.txt' # not used in this test version
+__C.FRCNN.INPUT_SIZE            = 300  # not used
+__C.FRCNN.NUM_LABELS            = 91   # not used
+__C.FRCNN.MAX_DETECTION         = 100
+__C.FRCNN.INPUT_DIM             = {'image_tensor': '3:-1:-1:1'}
+__C.FRCNN.INPUT_TYPE            = {'image_tensor': 'uint8'}
+__C.FRCNN.OUTPUT_DIM            = {'num_detections': '1', 'detection_classes': f'''{__C.FRCNN.MAX_DETECTION}:1''', 'detection_scores': f'''{__C.FRCNN.MAX_DETECTION}:1''', 'detection_boxes': f'''4:{__C.FRCNN.MAX_DETECTION}:1'''}
+__C.FRCNN.OUTPUT_TYPE           = {'num_detections': 'float32', 'detection_classes': 'float32', 'detection_scores': 'float32', 'detection_boxes': 'float32'}
+__C.FRCNN.TENSOR_TRANSFORM      = ''
+
+# SSDLite
+__C.SSDLITE.MODEL_NAME          = 'ssdlite'
+__C.SSDLITE.MODEL_PATH          = './models/ssdlite_v2/ssdlite_mobilenet_v2.pb'
+__C.SSDLITE.LABEL_PATH          = './models/ssdlite_v2/coco_labels_list.txt'
+__C.SSDLITE.INPUT_SIZE          = 300  # not used
+__C.SSDLITE.NUM_LABELS          = 91   # not used
+__C.SSDLITE.MAX_DETECTION       = 100
+__C.SSDLITE.INPUT_DIM           = {'image_tensor': '3:-1:-1:1'}
+__C.SSDLITE.INPUT_TYPE          = {'image_tensor': 'uint8'}
+__C.SSDLITE.OUTPUT_DIM          = {'num_detections': '1', 'detection_classes': f'''{__C.SSDLITE.MAX_DETECTION}:1''', 'detection_scores': f'''{__C.SSDLITE.MAX_DETECTION}:1''', 'detection_boxes': f'''4:{__C.SSDLITE.MAX_DETECTION}:1'''}
+__C.SSDLITE.OUTPUT_TYPE         = {'num_detections': 'float32', 'detection_classes': 'float32', 'detection_scores': 'float32', 'detection_boxes': 'float32'}
+__C.SSDLITE.TENSOR_TRANSFORM    = ''
+
+# SSD
+__C.SSD.MODEL_NAME              = 'ssd'
+__C.SSD.MODEL_PATH              = './models/ssd_inception_v2/ssd_inception_v2.pb'
+__C.SSD.LABEL_PATH              = './models/ssd_inception_v2/coco_labels.txt' # not used in this test version
+__C.SSD.INPUT_SIZE              = 300  # not used
+__C.SSD.NUM_LABELS              = 91   # not used
+__C.SSD.MAX_DETECTION           = 100
+__C.SSD.INPUT_DIM               = {'image_tensor': '3:-1:-1:1'}
+__C.SSD.INPUT_TYPE              = {'image_tensor': 'uint8'}
+__C.SSD.OUTPUT_DIM              = {'num_detections': '1', 'detection_classes': f'''{__C.SSDLITE.MAX_DETECTION}:1''', 'detection_scores': f'''{__C.SSDLITE.MAX_DETECTION}:1''', 'detection_boxes': f'''4:{__C.SSDLITE.MAX_DETECTION}:1'''}
+__C.SSD.OUTPUT_TYPE             = {'num_detections': 'float32', 'detection_classes': 'float32', 'detection_scores': 'float32', 'detection_boxes': 'float32'}
+__C.SSD.TENSOR_TRANSFORM        = ''
 
 # YOLO-Tiny
-__C.YOLO_TINY.MODEL_NAME       = 'yolo_tiny'
-__C.YOLO_TINY.MODEL_PATH       = './models/yolo_v3/yolov3_tiny.pb'
-__C.YOLO_TINY.LABEL_PATH       = './models/yolo_v3/coco.names'
-__C.YOLO_TINY.INPUT_SIZE       = 416
-__C.YOLO_TINY.NUM_LABELS       = 80
-__C.YOLO_TINY.INPUT_DIM        = {'inputs': f'''3:{__C.YOLO_TINY.INPUT_SIZE}:{__C.YOLO_TINY.INPUT_SIZE}:1'''}
-__C.YOLO_TINY.INPUT_TYPE       = {'inputs': 'float32'}
-__C.YOLO_TINY.OUTPUT_DIM       = {'output_boxes': '85:2535:1'}
-__C.YOLO_TINY.OUTPUT_TYPE      = {'output_boxes': 'float32'}
-__C.YOLO_TINY.TENSOR_TRANSFORM = 'mode=typecast option=float32'
+__C.YOLO_TINY.MODEL_NAME        = 'yolo_tiny'
+__C.YOLO_TINY.MODEL_PATH        = './models/yolo_v3/yolov3_tiny.pb'
+__C.YOLO_TINY.LABEL_PATH        = './models/yolo_v3/coco.names'
+__C.YOLO_TINY.INPUT_SIZE        = 416
+__C.YOLO_TINY.NUM_LABELS        = 80
+__C.YOLO_TINY.INPUT_DIM         = {'inputs': f'''3:{__C.YOLO_TINY.INPUT_SIZE}:{__C.YOLO_TINY.INPUT_SIZE}:1'''}
+__C.YOLO_TINY.INPUT_TYPE        = {'inputs': 'float32'}
+__C.YOLO_TINY.OUTPUT_DIM        = {'output_boxes': '85:2535:1'}
+__C.YOLO_TINY.OUTPUT_TYPE       = {'output_boxes': 'float32'}
+__C.YOLO_TINY.TENSOR_TRANSFORM  = 'mode=typecast option=float32'
 
 # YOLO
 __C.YOLO.MODEL_NAME             = 'yolo'

@@ -42,6 +42,9 @@ def decode_ssd(inf_result, video_width, video_height, frame):
     coors[:, 0::2] *= video_width
     coors[:, 1::2] *= video_height
 
+    mask = scores >= cfg.GLOBAL.SCORE_THRESHOLD
+    coors, scores, classes = coors[mask], scores[mask], classes[mask]
+
     return np.concatenate([coors, scores[:, np.newaxis], classes[:, np.newaxis]], axis=-1)
 
     # while added_objects < num_detections:
