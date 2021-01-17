@@ -103,11 +103,14 @@ You can refer to [install guidelines with Meson/Ninja build](https://github.com/
 
 - [nnstreamer/nnstreamer (NNStreamer Official Github)](https://github.com/nnstreamer/nnstreamer)
 
+- [opencv/opencv (TF Object Detection API Wiki)](https://github.com/opencv/opencv/wiki/TensorFlow-Object-Detection-API)
+
 - [trekhleb/machine-learning-experiments](https://github.com/trekhleb/machine-learning-experiments)
 
 - [YunYang1994/tensorflow-yolov3](https://github.com/YunYang1994/tensorflow-yolov3)
 
 - [wizyoung/YOLOv3_TensorFlow](https://github.com/wizyoung/YOLOv3_TensorFlow)
+
 - [zzh8829/yolov3-tf2](https://github.com/zzh8829/yolov3-tf2)
 
 <br>
