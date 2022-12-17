@@ -65,7 +65,7 @@
 $ sudo apt install libgstreamer1.0-0 libgstreamer1.0-dev gstreamer1.0-tools gstreamer1.0-doc gstreamer1.0-x gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly  gstreamer1.0-alsa gstreamer1.0-libav gstreamer1.0-gl gstreamer1.0-gtk3 gstreamer1.0-qt5 gstreamer1.0-pulseaudio libgstreamer-plugins-base1.0-dev 
 ```
 
-<br>
+<br/>
 
 #### NNStreamer 설치
 
@@ -79,7 +79,7 @@ $ sudo apt install nnstreamer nnstreamer-tensorflow
 - 특정 버전의 서드파티 라이브러리를 사용하려면 해당 라이브러리 소스 코드를 직접 빌드 후 링크해 줘야 합니다.
   - [Meson/Ninja로 빌드하기 위한 가이드라인](https://github.com/nnstreamer/nnstreamer/blob/main/Documentation/getting-started-meson-build.md)을 참조하세요.
 
-<br>
+<br/>
 
 #### 코드 활용 방법
 
@@ -90,7 +90,7 @@ $ sudo apt install nnstreamer nnstreamer-tensorflow
     $ cd nnstreamer-od
     ```
 
-<br>
+<br/>
 
 2. pip를 활용해 ``requirements.txt``에 기재된 의존 패키지를 모두 설치합니다.
 
@@ -98,7 +98,7 @@ $ sudo apt install nnstreamer nnstreamer-tensorflow
     $ pip install -r ./requirements.txt
     ```
 
-<br>
+<br/>
 
 3. 객체 인식 데모를 확인하기 위해  ``object_detection.py`` 파일을 원하는 옵션과 함께 실행합니다.
 
@@ -112,7 +112,7 @@ $ sudo apt install nnstreamer nnstreamer-tensorflow
     $ python object_detection.py --video ./video/street.mp4 --model yolo --device gpu --gpu_idx 0
     ```
     
-    <br>
+    <br/>
     활용 가능한 모든 옵션 및 그 설명은 다음과 같습니다.
     
     ```bash
@@ -125,7 +125,13 @@ $ sudo apt install nnstreamer nnstreamer-tensorflow
     ```
     위 옵션들과 이외의 모델 별 설정은 ``config.py``에서 수정 가능합니다.
 
-<br>
+<br/>
+
+#### 실행 예시
+
+<img src="./images/example.gif" alt="실행 예시" style="width:720px;" />
+
+<br/>
 
 ### 코멘트
 
@@ -135,9 +141,9 @@ $ sudo apt install nnstreamer nnstreamer-tensorflow
 - Apply more object detection models
 - Cooperate with TVM framework
 
-<br>
+<br/>
 
-<br>
+<br/>
 
 #### Credits
 
@@ -155,7 +161,7 @@ $ sudo apt install nnstreamer nnstreamer-tensorflow
 
 - [zzh8829/yolov3-tf2](https://github.com/zzh8829/yolov3-tf2)
 
-<br>
+<br/>
 
 #### Papers
 
@@ -165,7 +171,7 @@ $ sudo apt install nnstreamer nnstreamer-tensorflow
 
 - [YOLOv3: An Incremental Improvement](https://arxiv.org/abs/1804.02767)
 
-<br>
+<br/>
 
 #### Frameworks
 
@@ -175,7 +181,7 @@ $ sudo apt install nnstreamer nnstreamer-tensorflow
 
 - [Tensorflow](https://www.tensorflow.org/)
 
-<br>
+<br/>
 
 #### Datasets
 
