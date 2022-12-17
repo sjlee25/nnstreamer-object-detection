@@ -24,7 +24,7 @@
 
 #### 제안
 
-<img src="./images/pipeline.png" alt="파이프라인" style="width:720px;" />
+<p align="center"><img src="./images/pipeline.png" alt="파이프라인" style="width: 720px;" /></p>
 
 - 위의 NNStreamer 및 GStreamer element들로 파이프라인을 구성합니다.
 - Tensor 관련 element에서 입력 데이터를 학습된 모델에 알맞은 형태로 변환하고, 추론 후 얻은 출력 데이터를 적절한 callback 함수에서 영상에 표시 가능한 형태의 정보로 변환합니다.
@@ -34,7 +34,7 @@
 
 #### 결과
 
-<img src="./images/result.png" alt="파이프라인" style="width:560px;" />
+<p align="center"><img src="./images/result.png" alt="실험 결과" style="width: 560px;" /></p>
 
 - OpenCV와 Tensorflow를 활용해 객체 인식 결과를 영상에 합성할 때 대비 NNStreamer를 활용할 때 초당 출력되는 이미지의 수를 비교해 보았습니다.
 - NNStreamer 이용 시 OpenCV 대비 모델에 따라 약 0.89~2.1배의 성능 변화를 확인하였습니다.
@@ -127,9 +127,11 @@ $ sudo apt install nnstreamer nnstreamer-tensorflow
 
 <br/>
 
-#### 실행 예시
+#### 실행 데모
 
-<img src="./images/example.gif" alt="실행 예시" style="width:720px;" />
+##### NNStreamer 파이프라인을 활용한 YOLOv3 GPU 수행 데모
+
+<p align="center"><video src="./images/demo.mp4" alt="실행 데모" style="width:720px;" /></p>
 
 <br/>
 
